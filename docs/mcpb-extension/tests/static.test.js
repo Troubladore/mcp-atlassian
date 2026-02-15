@@ -282,11 +282,13 @@ describe("server/index.js", () => {
     );
   });
 
-  it("has global uncaughtException handler", () => {
+  it("has top-level try/catch for initialization errors", () => {
+    // Wrapping the entire script in try/catch is more reliable than
+    // uncaughtException handlers for synchronous init code
     assert.match(
       serverJs,
-      /process\.on\s*\(\s*["']uncaughtException["']/,
-      "Must register uncaughtException handler for diagnostic visibility"
+      /catch\s*\(\s*topLevelError\s*\)/,
+      "Must have top-level try/catch wrapper for initialization errors"
     );
   });
 

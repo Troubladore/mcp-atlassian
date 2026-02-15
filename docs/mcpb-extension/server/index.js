@@ -4,31 +4,28 @@
 // Spawns mcp-atlassian in a sandboxed Docker container with network egress filtering.
 // Uses a companion Squid proxy container to allow connections ONLY to Atlassian domains.
 
+// CRITICAL: Wrap everything in try/catch with immediate stderr output
+// Console.error may be buffered and not flushed before exit
+try {
+
 const { spawn, execSync } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 
 // --- Logging helper ---
-// Uses console.error which Claude Desktop reliably captures in its logs.
-// process.stderr.write alone may be silently swallowed in some environments.
+// Uses BOTH console.error and process.stderr.write for maximum visibility
+// Flushes stderr after each write to ensure output appears immediately
 function log(msg) {
   const line = `[eruditis-atlassian] ${msg}`;
-  try { process.stderr.write(line + "\n"); } catch (_) { /* ignore */ }
+  try {
+    process.stderr.write(line + "\n");
+    // Force flush on Windows (fd 2 is stderr)
+    if (process.platform === "win32" && fs.fsyncSync) {
+      try { fs.fsyncSync(2); } catch (_) {}
+    }
+  } catch (_) { /* ignore */ }
   try { console.error(line); } catch (_) { /* ignore */ }
 }
-
-// --- Global error handler ---
-// Catches unhandled exceptions so Claude Desktop sees useful diagnostics
-// instead of a silent crash.
-process.on("uncaughtException", (err) => {
-  log(`FATAL uncaught exception: ${err.message}`);
-  log(`Stack: ${err.stack}`);
-  process.exit(1);
-});
-process.on("unhandledRejection", (reason) => {
-  log(`FATAL unhandled rejection: ${reason}`);
-  process.exit(1);
-});
 
 // --- Version and startup diagnostics ---
 let extensionVersion = "unknown";
@@ -37,13 +34,17 @@ try {
     fs.readFileSync(path.join(__dirname, "..", "manifest.json"), "utf-8")
   );
   extensionVersion = manifest.version || "unknown";
-} catch (_) {
-  // manifest not found — use fallback
+} catch (e) {
+  log(`Warning: Could not read manifest.json: ${e.message}`);
 }
 
-log(`Starting v${extensionVersion} (Node ${process.version}, platform: ${process.platform}, arch: ${process.arch})`);
-log(`Working directory: ${process.cwd()}`);
-log(`Script location: ${__dirname}`);
+log(`========================================`);
+log(`STARTING v${extensionVersion}`);
+log(`Node: ${process.version}`);
+log(`Platform: ${process.platform} ${process.arch}`);
+log(`CWD: ${process.cwd()}`);
+log(`Script: ${__dirname}`);
+log(`========================================`);
 
 // --- Configuration ---
 const IMAGE = "ghcr.io/troubladore/mcp-atlassian:v0.11.10";
@@ -52,18 +53,28 @@ const PROXY_CONTAINER_NAME = "eruditis-atlassian-proxy";
 const PROXY_PORT = 3128;
 
 // --- Check Docker availability early ---
+log("Checking Docker availability...");
 let dockerPath = "docker";
 try {
   const whichCmd = process.platform === "win32" ? "where docker" : "which docker";
+  log(`Running: ${whichCmd}`);
   dockerPath = execSync(whichCmd, { encoding: "utf-8", timeout: 5000 }).trim().split("\n")[0];
-  log(`Docker found at: ${dockerPath}`);
+  log(`✓ Docker found at: ${dockerPath}`);
+
+  log(`Checking Docker version...`);
   const dockerVersion = execSync(`"${dockerPath}" version --format "{{.Client.Version}}"`,
     { encoding: "utf-8", timeout: 10000 }).trim();
-  log(`Docker version: ${dockerVersion}`);
+  log(`✓ Docker version: ${dockerVersion}`);
 } catch (err) {
-  log(`ERROR: Docker not found in PATH. Is Docker Desktop installed and running?`);
+  log(`========================================`);
+  log(`ERROR: Docker not found or not working`);
   log(`PATH: ${process.env.PATH || "(empty)"}`);
-  log(`Error: ${err.message}`);
+  log(`Error message: ${err.message}`);
+  if (err.code) log(`Error code: ${err.code}`);
+  if (err.stderr) log(`Stderr: ${err.stderr}`);
+  log(`========================================`);
+  log(`Please ensure Docker Desktop is installed and running.`);
+  log(`Download from: https://docker.com/products/docker-desktop`);
   process.exit(1);
 }
 
@@ -420,3 +431,26 @@ process.stdin.on("end", () => {
   log("stdin closed (Claude Desktop disconnected).");
   child.stdin.end();
 });
+
+} catch (topLevelError) {
+  // CRITICAL: Top-level catch for any synchronous errors during initialization
+  // This ensures errors are visible even if they occur before event loop starts
+  const msg = `[eruditis-atlassian] FATAL ERROR during initialization: ${topLevelError.message}`;
+  const stack = `[eruditis-atlassian] Stack: ${topLevelError.stack}`;
+
+  // Write directly to stderr file descriptor (most reliable)
+  try {
+    process.stderr.write(msg + "\n");
+    process.stderr.write(stack + "\n");
+    process.stderr.write("[eruditis-atlassian] ========================================\n");
+  } catch (_) {}
+
+  // Also try console.error
+  try {
+    console.error(msg);
+    console.error(stack);
+    console.error("[eruditis-atlassian] ========================================");
+  } catch (_) {}
+
+  process.exit(1);
+}
