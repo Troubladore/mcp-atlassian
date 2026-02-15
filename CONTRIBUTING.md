@@ -139,3 +139,23 @@ Releases follow semantic versioning:
 ---
 
 Thank you for contributing to MCP Atlassian!
+
+---
+
+## Fork-Specific Policy (Troubladore/mcp-atlassian)
+
+### Never Force-Push to Protected Branches
+
+ALL changes to `eruditis/main`, `develop`, and `feature/security-fixes` must use pull requests.
+
+**Workflow**:
+```bash
+git checkout -b eruditis/feature-name eruditis/main
+git commit -S -m "changes"
+git push origin eruditis/feature-name
+gh pr create --base eruditis/main --head eruditis/feature-name
+```
+
+**Never use**: `git push --force` on protected branches
+
+See `BRANCHING_STRATEGY.md` for complete fork workflows.
