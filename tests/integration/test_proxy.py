@@ -202,9 +202,9 @@ class TestProxyConfigurationEnhanced(BaseAuthTest):
 
         # Verify NO_PROXY is set in environment
         assert os.environ["NO_PROXY"] == "*.internal.com,localhost,127.0.0.1"
-        # Check if domain is in the no_proxy list using list membership (not substring)
-        no_proxy_list = [item.strip() for item in config.no_proxy.split(",")]
-        assert "*.internal.com" in no_proxy_list or "internal.com" in no_proxy_list
+        # Check if domain is in the no_proxy list using set membership (avoids CodeQL URL substring warning)
+        no_proxy_set = set(item.strip() for item in config.no_proxy.split(","))
+        assert any(domain in no_proxy_set for domain in ["*.internal.com", "internal.com"])
 
     @pytest.mark.integration
     def test_proxy_error_handling(self, monkeypatch):
