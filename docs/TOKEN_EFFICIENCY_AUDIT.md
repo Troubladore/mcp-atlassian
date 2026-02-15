@@ -160,10 +160,32 @@ get_content(identifier="search term")  # Falls back to search
 
 1. ✅ Create PARAMETER_DESCRIPTION_STYLE_GUIDE.md
 2. ✅ Create confluence-navigation skill
-3. TODO: Reduce all Confluence parameter descriptions to <10 words
-4. TODO: Add URL auto-parsing to confluence_get_page
-5. TODO: Add fuzzy space_key matching with suggestions
-6. TODO: Return partial results instead of hard errors
+3. ✅ Reduce all Confluence parameter descriptions to <10 words (~80% reduction)
+4. ✅ Add URL auto-parsing to confluence_get_page and get_page_ancestors
+5. ✅ Change get_space_page_tree to return JSON (not ASCII art)
+6. TODO: Add fuzzy space_key matching with suggestions
+7. TODO: Return partial results instead of hard errors
+
+## Major Optimization Opportunity: Split Servers
+
+**Current:** Single MCP server with both Jira + Confluence (~37k tokens)
+**Problem:** User working on Confluence docs loads all Jira tools (wasted tokens)
+
+**Proposed:** Separate MCPB extensions
+- `eruditis-confluence.mcpb` - Confluence-only (~15k tokens)
+- `eruditis-jira.mcpb` - Jira-only (~15k tokens)
+- `eruditis-atlassian.mcpb` - Both (current, for users who need both)
+
+**Benefits:**
+- 50% token reduction when using single product
+- Faster startup (fewer tools to register)
+- Better security (only expose what's needed)
+- Clearer mental model
+
+**Implementation:**
+- Upstream supports this: confluence_mcp and jira_mcp are separate FastMCP instances
+- Just need to create separate MCPB wrappers that launch with different enabled tools
+- No code changes to mcp-atlassian itself needed
 
 ## Long-Term Refactoring (Future PR)
 
