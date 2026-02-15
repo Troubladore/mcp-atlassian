@@ -268,6 +268,81 @@ describe("server/index.js", () => {
       "ENABLE_WRITE must default to 'false'"
     );
   });
+
+  it("has a log() helper that writes to both stderr and console.error", () => {
+    assert.match(
+      serverJs,
+      /function\s+log\s*\(/,
+      "Must define a log() helper function"
+    );
+    assert.match(
+      serverJs,
+      /console\.error/,
+      "log() must use console.error (reliably captured by Claude Desktop)"
+    );
+  });
+
+  it("has top-level try/catch for initialization errors", () => {
+    // Wrapping the entire script in try/catch is more reliable than
+    // uncaughtException handlers for synchronous init code
+    assert.match(
+      serverJs,
+      /catch\s*\(\s*topLevelError\s*\)/,
+      "Must have top-level try/catch wrapper for initialization errors"
+    );
+  });
+
+  it("reads version from manifest.json on startup", () => {
+    assert.match(
+      serverJs,
+      /manifest\.json/,
+      "Must read manifest.json for version logging"
+    );
+    assert.match(
+      serverJs,
+      /extensionVersion/,
+      "Must extract and log extension version"
+    );
+  });
+
+  it("checks Docker availability before proceeding", () => {
+    // Must check for docker binary before attempting any docker operations
+    assert.match(
+      serverJs,
+      /where docker|which docker/,
+      "Must check if docker is in PATH (cross-platform)"
+    );
+  });
+
+  it("does not use stdio inherit for execSync (breaks in Claude Desktop)", () => {
+    // stdio: 'inherit' in execSync doesn't work in Claude Desktop's headless Node.js.
+    // All execSync calls should use 'ignore', 'pipe', or the dockerExec helper.
+    const codeLines = serverJs
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("//"));
+    const inheritLines = codeLines.filter((line) =>
+      line.includes("execSync") && line.includes("'inherit'")
+    );
+    assert.equal(
+      inheritLines.length,
+      0,
+      `Found execSync with stdio:'inherit' which breaks in Claude Desktop: ${inheritLines.join("; ")}`
+    );
+  });
+
+  it("does not use shell sleep command (not available on Windows)", () => {
+    const codeLines = serverJs
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("//"));
+    const sleepLines = codeLines.filter((line) =>
+      line.match(/execSync\s*\(\s*["']sleep/)
+    );
+    assert.equal(
+      sleepLines.length,
+      0,
+      `Found shell 'sleep' command which is not available on Windows: ${sleepLines.join("; ")}`
+    );
+  });
 });
 
 // =============================================================================

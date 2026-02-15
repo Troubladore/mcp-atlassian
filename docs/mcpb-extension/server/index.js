@@ -4,15 +4,81 @@
 // Spawns mcp-atlassian in a sandboxed Docker container with network egress filtering.
 // Uses a companion Squid proxy container to allow connections ONLY to Atlassian domains.
 
+// CRITICAL: Wrap everything in try/catch with immediate stderr output
+// Console.error may be buffered and not flushed before exit
+try {
+
 const { spawn, execSync } = require("child_process");
 const path = require("path");
 const fs = require("fs");
+
+// --- Logging helper ---
+// Uses BOTH console.error and process.stderr.write for maximum visibility
+// Flushes stderr after each write to ensure output appears immediately
+function log(msg) {
+  const line = `[eruditis-atlassian] ${msg}`;
+  try {
+    process.stderr.write(line + "\n");
+    // Force flush on Windows (fd 2 is stderr)
+    if (process.platform === "win32" && fs.fsyncSync) {
+      try { fs.fsyncSync(2); } catch (_) {}
+    }
+  } catch (_) { /* ignore */ }
+  try { console.error(line); } catch (_) { /* ignore */ }
+}
+
+// --- Version and startup diagnostics ---
+let extensionVersion = "unknown";
+try {
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "..", "manifest.json"), "utf-8")
+  );
+  extensionVersion = manifest.version || "unknown";
+} catch (e) {
+  log(`Warning: Could not read manifest.json: ${e.message}`);
+}
+
+log(`========================================`);
+log(`STARTING v${extensionVersion}`);
+log(`Node: ${process.version}`);
+log(`Platform: ${process.platform} ${process.arch}`);
+log(`CWD: ${process.cwd()}`);
+log(`Script: ${__dirname}`);
+log(`========================================`);
 
 // --- Configuration ---
 const IMAGE = "ghcr.io/troubladore/mcp-atlassian:v0.11.10";
 const PROXY_IMAGE = "eruditis/atlassian-proxy:latest";
 const PROXY_CONTAINER_NAME = "eruditis-atlassian-proxy";
+const MCP_CONTAINER_NAME = "eruditis-atlassian-mcp";
+const NETWORK_NAME = "eruditis-atlassian-net";
 const PROXY_PORT = 3128;
+
+// --- Check Docker availability early ---
+log("Checking Docker availability...");
+let dockerPath = "docker";
+try {
+  const whichCmd = process.platform === "win32" ? "where docker" : "which docker";
+  log(`Running: ${whichCmd}`);
+  dockerPath = execSync(whichCmd, { encoding: "utf-8", timeout: 5000 }).trim().split("\n")[0];
+  log(`✓ Docker found at: ${dockerPath}`);
+
+  log(`Checking Docker version...`);
+  const dockerVersion = execSync(`"${dockerPath}" version --format "{{.Client.Version}}"`,
+    { encoding: "utf-8", timeout: 10000 }).trim();
+  log(`✓ Docker version: ${dockerVersion}`);
+} catch (err) {
+  log(`========================================`);
+  log(`ERROR: Docker not found or not working`);
+  log(`PATH: ${process.env.PATH || "(empty)"}`);
+  log(`Error message: ${err.message}`);
+  if (err.code) log(`Error code: ${err.code}`);
+  if (err.stderr) log(`Stderr: ${err.stderr}`);
+  log(`========================================`);
+  log(`Please ensure Docker Desktop is installed and running.`);
+  log(`Download from: https://docker.com/products/docker-desktop`);
+  process.exit(1);
+}
 
 // Read config from environment (injected by Claude Desktop from user_config)
 const ATLASSIAN_URL = process.env.ATLASSIAN_URL || "";
@@ -24,9 +90,10 @@ const JIRA_PROJECTS_FILTER = process.env.JIRA_PROJECTS_FILTER || "";
 
 // --- Validate required config ---
 if (!ATLASSIAN_URL || !ATLASSIAN_EMAIL || !ATLASSIAN_API_TOKEN) {
-  process.stderr.write(
-    "ERROR: Missing required configuration. Please configure your Atlassian URL, email, and API token in the extension settings.\n"
-  );
+  log("ERROR: Missing required configuration. Please configure your Atlassian URL, email, and API token in the extension settings.");
+  log(`  ATLASSIAN_URL: ${ATLASSIAN_URL ? "set" : "MISSING"}`);
+  log(`  ATLASSIAN_EMAIL: ${ATLASSIAN_EMAIL ? "set" : "MISSING"}`);
+  log(`  ATLASSIAN_API_TOKEN: ${ATLASSIAN_API_TOKEN ? "set" : "MISSING"}`);
   process.exit(1);
 }
 
@@ -37,7 +104,7 @@ if (!ATLASSIAN_URL || !ATLASSIAN_EMAIL || !ATLASSIAN_API_TOKEN) {
  */
 function imageExists(image) {
   try {
-    execSync(`docker image inspect ${image}`, { stdio: 'ignore' });
+    execSync(`docker image inspect ${image}`, { stdio: "ignore" });
     return true;
   } catch (err) {
     return false;
@@ -45,17 +112,37 @@ function imageExists(image) {
 }
 
 /**
+ * Run a Docker command synchronously, logging output via log().
+ * Replaces stdio:'inherit' which may not work in Claude Desktop's Node.js.
+ */
+function dockerExec(args, { ignoreErrors = false, timeout = 120000 } = {}) {
+  const cmd = `docker ${args}`;
+  try {
+    const output = execSync(cmd, { encoding: "utf-8", timeout, stdio: ["ignore", "pipe", "pipe"] });
+    if (output.trim()) log(output.trim());
+    return output;
+  } catch (err) {
+    if (!ignoreErrors) {
+      const stderr = err.stderr ? err.stderr.toString().trim() : "";
+      if (stderr) log(`docker stderr: ${stderr}`);
+      throw err;
+    }
+    return "";
+  }
+}
+
+/**
  * Pull a Docker image with progress feedback
  */
 function pullImage(image) {
-  process.stderr.write(`Pulling Docker image ${image}...\n`);
-  process.stderr.write("This may take a few moments on first run.\n");
+  log(`Pulling Docker image ${image}...`);
+  log("This may take a few moments on first run.");
   try {
-    execSync(`docker pull ${image}`, { stdio: 'inherit' });
-    process.stderr.write(`Successfully pulled ${image}\n`);
+    dockerExec(`pull ${image}`, { timeout: 300000 });
+    log(`Successfully pulled ${image}`);
     return true;
   } catch (err) {
-    process.stderr.write(`ERROR: Failed to pull Docker image: ${err.message}\n`);
+    log(`ERROR: Failed to pull Docker image: ${err.message}`);
     return false;
   }
 }
@@ -65,8 +152,10 @@ function pullImage(image) {
  */
 function isProxyRunning() {
   try {
-    const result = execSync(`docker ps --filter name=${PROXY_CONTAINER_NAME} --filter status=running --format "{{.Names}}"`,
-      { encoding: 'utf-8' });
+    const result = execSync(
+      `docker ps --filter name=${PROXY_CONTAINER_NAME} --filter status=running --format "{{.Names}}"`,
+      { encoding: "utf-8", timeout: 10000 }
+    );
     return result.trim() === PROXY_CONTAINER_NAME;
   } catch (err) {
     return false;
@@ -77,20 +166,25 @@ function isProxyRunning() {
  * Build the proxy Docker image from local Dockerfile
  */
 function buildProxyImage() {
-  const proxyDir = path.join(__dirname, "proxy");
+  // proxy/ is a sibling of server/, so go up one level
+  const proxyDir = path.join(__dirname, "..", "proxy");
+  const dockerfilePath = path.join(proxyDir, "Dockerfile");
 
-  if (!fs.existsSync(path.join(proxyDir, "Dockerfile"))) {
-    process.stderr.write("ERROR: Proxy Dockerfile not found. The .mcpb package may be corrupted.\n");
+  if (!fs.existsSync(dockerfilePath)) {
+    log(`ERROR: Proxy Dockerfile not found at: ${dockerfilePath}`);
+    log(`__dirname is: ${__dirname}`);
+    log(`Looking for proxy in: ${proxyDir}`);
+    log("The .mcpb package may be corrupted.");
     return false;
   }
 
-  process.stderr.write("Building Atlassian filtering proxy image...\n");
+  log("Building Atlassian filtering proxy image...");
   try {
-    execSync(`docker build -t ${PROXY_IMAGE} ${proxyDir}`, { stdio: 'inherit' });
-    process.stderr.write("Proxy image built successfully.\n");
+    dockerExec(`build -t ${PROXY_IMAGE} "${proxyDir}"`, { timeout: 300000 });
+    log("Proxy image built successfully.");
     return true;
   } catch (err) {
-    process.stderr.write(`ERROR: Failed to build proxy image: ${err.message}\n`);
+    log(`ERROR: Failed to build proxy image: ${err.message}`);
     return false;
   }
 }
@@ -101,20 +195,20 @@ function buildProxyImage() {
 function ensureProxyRunning() {
   // Check if proxy is already running
   if (isProxyRunning()) {
-    process.stderr.write("Atlassian filtering proxy already running.\n");
+    log("Atlassian filtering proxy already running.");
     return true;
   }
 
-  // Check if old proxy container exists (stopped)
+  // Check if old proxy container exists (stopped or running but unhealthy)
   try {
     const existingContainer = execSync(
       `docker ps -a --filter name=${PROXY_CONTAINER_NAME} --format "{{.Names}}"`,
-      { encoding: 'utf-8' }
+      { encoding: "utf-8", timeout: 10000 }
     ).trim();
 
     if (existingContainer === PROXY_CONTAINER_NAME) {
-      process.stderr.write("Removing stopped proxy container...\n");
-      execSync(`docker rm ${PROXY_CONTAINER_NAME}`, { stdio: 'ignore' });
+      log("Removing existing proxy container...");
+      execSync(`docker rm -f ${PROXY_CONTAINER_NAME}`, { stdio: "ignore", timeout: 10000 });
     }
   } catch (err) {
     // Container doesn't exist, that's fine
@@ -122,58 +216,58 @@ function ensureProxyRunning() {
 
   // Build proxy image if it doesn't exist
   if (!imageExists(PROXY_IMAGE)) {
-    process.stderr.write("Proxy image not found locally. Building...\n");
+    log("Proxy image not found locally. Building...");
     if (!buildProxyImage()) {
       return false;
     }
   }
 
   // Create Docker network for proxy and mcp-atlassian
-  const networkName = "eruditis-atlassian-net";
   try {
-    execSync(`docker network inspect ${networkName}`, { stdio: 'ignore' });
+    execSync(`docker network inspect ${NETWORK_NAME}`, { stdio: "ignore", timeout: 10000 });
   } catch (err) {
     // Network doesn't exist, create it
-    process.stderr.write("Creating Docker network...\n");
-    execSync(`docker network create ${networkName}`, { stdio: 'ignore' });
+    log("Creating Docker network...");
+    execSync(`docker network create ${NETWORK_NAME}`, { stdio: "ignore", timeout: 10000 });
   }
 
   // Start proxy container
-  process.stderr.write("Starting Atlassian filtering proxy...\n");
+  log("Starting Atlassian filtering proxy...");
   try {
-    execSync(
-      `docker run -d --name ${PROXY_CONTAINER_NAME} \
-        --restart=unless-stopped \
-        --network=${networkName} \
-        --cap-drop=ALL \
-        --security-opt no-new-privileges:true \
-        --read-only \
-        --tmpfs /var/cache/squid:noexec,nosuid,size=64m,uid=31,gid=31 \
-        --tmpfs /var/log/squid:noexec,nosuid,size=16m,uid=31,gid=31 \
-        --tmpfs /var/run/squid:noexec,nosuid,size=8m,uid=31,gid=31 \
-        ${PROXY_IMAGE}`,
-      { stdio: 'inherit' }
+    dockerExec(
+      `run -d --name ${PROXY_CONTAINER_NAME} ` +
+      `--restart=unless-stopped ` +
+      `--network=${NETWORK_NAME} ` +
+      `--cap-drop=ALL ` +
+      `--security-opt no-new-privileges:true ` +
+      `--read-only ` +
+      `--tmpfs /var/cache/squid:noexec,nosuid,size=64m,uid=31,gid=31 ` +
+      `--tmpfs /var/log/squid:noexec,nosuid,size=16m,uid=31,gid=31 ` +
+      `--tmpfs /var/run/squid:noexec,nosuid,size=8m,uid=31,gid=31 ` +
+      PROXY_IMAGE
     );
-    process.stderr.write("Proxy started successfully.\n");
+    log("Proxy started successfully.");
 
-    // Wait for proxy to be ready
-    process.stderr.write("Waiting for proxy to be ready...\n");
+    // Wait for proxy to be ready (use Node.js sleep, not shell 'sleep' which may not exist on Windows)
+    log("Waiting for proxy to be ready...");
     let attempts = 0;
     while (attempts < 10) {
       try {
-        execSync(`docker exec ${PROXY_CONTAINER_NAME} nc -z 127.0.0.1 3128`, { stdio: 'ignore' });
-        process.stderr.write("Proxy is ready.\n");
+        execSync(`docker exec ${PROXY_CONTAINER_NAME} nc -z 127.0.0.1 3128`, { stdio: "ignore", timeout: 5000 });
+        log("Proxy is ready.");
         return true;
       } catch (err) {
         attempts++;
-        execSync("sleep 0.5", { stdio: 'ignore' });
+        // Cross-platform sleep: busy-wait 500ms via Node.js
+        const end = Date.now() + 500;
+        while (Date.now() < end) { /* spin */ }
       }
     }
 
-    process.stderr.write("WARNING: Proxy may not be fully ready, but continuing...\n");
+    log("WARNING: Proxy may not be fully ready, but continuing...");
     return true;
   } catch (err) {
-    process.stderr.write(`ERROR: Failed to start proxy container: ${err.message}\n`);
+    log(`ERROR: Failed to start proxy container: ${err.message}`);
     return false;
   }
 }
@@ -231,27 +325,43 @@ const enabledTools = ENABLE_WRITE
 
 // 1. Ensure mcp-atlassian image is available
 if (!imageExists(IMAGE)) {
-  process.stderr.write(`Docker image ${IMAGE} not found locally.\n`);
+  log(`Docker image ${IMAGE} not found locally.`);
   if (!pullImage(IMAGE)) {
-    process.stderr.write("Failed to pull Docker image. Please check your internet connection and Docker installation.\n");
+    log("Failed to pull Docker image. Please check your internet connection and Docker installation.");
     process.exit(1);
   }
 }
 
 // 2. Ensure proxy container is running (network egress filtering)
 if (!ensureProxyRunning()) {
-  process.stderr.write("Failed to start filtering proxy. Extension cannot run without network restrictions.\n");
+  log("Failed to start filtering proxy. Extension cannot run without network restrictions.");
   process.exit(1);
 }
 
-// --- Build Docker args ---
-const networkName = "eruditis-atlassian-net";
+log("Docker setup complete. Launching MCP server...");
 
+// --- Clean up any existing MCP container (from previous crash) ---
+try {
+  const existingMcp = execSync(
+    `docker ps -a --filter name=${MCP_CONTAINER_NAME} --format "{{.Names}}"`,
+    { encoding: "utf-8", timeout: 10000 }
+  ).trim();
+
+  if (existingMcp === MCP_CONTAINER_NAME) {
+    log("Removing previous MCP container...");
+    execSync(`docker rm -f ${MCP_CONTAINER_NAME}`, { stdio: "ignore", timeout: 10000 });
+  }
+} catch (err) {
+  // Container doesn't exist, that's fine
+}
+
+// --- Build Docker args ---
 const dockerArgs = [
   "run",
   "--rm",           // Remove container on exit
   "-i",             // Interactive (for stdio transport)
-  `--network=${networkName}`, // Isolated network with proxy (no published ports)
+  "--name", MCP_CONTAINER_NAME, // Named container for easier debugging
+  `--network=${NETWORK_NAME}`, // Isolated network with proxy (no published ports)
   "--cap-drop=ALL", // Drop all Linux capabilities
   "--security-opt", "no-new-privileges:true", // Prevent privilege escalation
   "--read-only",    // Read-only root filesystem
@@ -288,8 +398,9 @@ if (JIRA_PROJECTS_FILTER) {
 dockerArgs.push(IMAGE);
 
 // --- Spawn Docker and bridge stdio ---
+log(`Spawning: docker ${dockerArgs.slice(0, 5).join(" ")} ... ${IMAGE}`);
 const child = spawn("docker", dockerArgs, {
-  stdio: ["pipe", "pipe", "inherit"], // stdin: pipe, stdout: pipe, stderr: inherit to Claude Desktop logs
+  stdio: ["pipe", "pipe", "pipe"], // stdin: pipe, stdout: pipe, stderr: pipe
 });
 
 // Bridge stdin from Claude Desktop to Docker container
@@ -298,21 +409,31 @@ process.stdin.pipe(child.stdin);
 // Bridge stdout from Docker container to Claude Desktop
 child.stdout.pipe(process.stdout);
 
+// Forward container stderr to our log (so Claude Desktop captures it)
+child.stderr.on("data", (data) => {
+  const lines = data.toString().split("\n").filter(Boolean);
+  for (const line of lines) {
+    log(`[container] ${line}`);
+  }
+});
+
 // Handle process lifecycle
 child.on("error", (err) => {
-  process.stderr.write(`ERROR: Failed to start Docker container: ${err.message}\n`);
+  log(`ERROR: Failed to start Docker container: ${err.message}`);
   if (err.code === "ENOENT") {
-    process.stderr.write(
-      "Docker does not appear to be installed or is not in your PATH.\n" +
-      "Install Docker Desktop from https://docker.com/products/docker-desktop\n"
-    );
+    log("Docker does not appear to be installed or is not in your PATH.");
+    log("Install Docker Desktop from https://docker.com/products/docker-desktop");
   }
   process.exit(1);
 });
 
 child.on("exit", (code, signal) => {
-  if (code !== 0 && code !== null) {
-    process.stderr.write(`Docker container exited with code ${code}\n`);
+  if (signal) {
+    log(`Docker container killed by signal ${signal}`);
+  } else if (code !== 0 && code !== null) {
+    log(`Docker container exited with code ${code}`);
+  } else {
+    log("Docker container exited normally.");
   }
   process.exit(code || 0);
 });
@@ -320,11 +441,36 @@ child.on("exit", (code, signal) => {
 // Forward termination signals to the container
 for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   process.on(sig, () => {
+    log(`Received ${sig}, forwarding to container...`);
     child.kill(sig);
   });
 }
 
 // Handle stdin close (Claude Desktop disconnects)
 process.stdin.on("end", () => {
+  log("stdin closed (Claude Desktop disconnected).");
   child.stdin.end();
 });
+
+} catch (topLevelError) {
+  // CRITICAL: Top-level catch for any synchronous errors during initialization
+  // This ensures errors are visible even if they occur before event loop starts
+  const msg = `[eruditis-atlassian] FATAL ERROR during initialization: ${topLevelError.message}`;
+  const stack = `[eruditis-atlassian] Stack: ${topLevelError.stack}`;
+
+  // Write directly to stderr file descriptor (most reliable)
+  try {
+    process.stderr.write(msg + "\n");
+    process.stderr.write(stack + "\n");
+    process.stderr.write("[eruditis-atlassian] ========================================\n");
+  } catch (_) {}
+
+  // Also try console.error
+  try {
+    console.error(msg);
+    console.error(stack);
+    console.error("[eruditis-atlassian] ========================================");
+  } catch (_) {}
+
+  process.exit(1);
+}

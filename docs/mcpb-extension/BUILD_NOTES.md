@@ -35,6 +35,41 @@ This directory contains a complete `.mcpb` (Model Context Protocol Bundle) exten
 - Memory and CPU limits enforced
 - No volume mounts or host network access
 
+## Deployment (What Works)
+
+**Current Status**: Extension is **fully functional** as of v1.0.5.
+
+### Prerequisites for Users
+
+1. **Docker Desktop** installed and running
+2. **Node.js 18+** installed on the system
+3. **Disable "Use built-in Node.js for MCP"** in Claude Desktop settings
+   - Go to Settings > Extensions
+   - Toggle off "Use built-in Node.js for MCP"
+   - Restart Claude Desktop
+
+### Why Disable Built-in Node.js?
+
+Claude Desktop's built-in Node.js runtime has a [known bug](https://github.com/modelcontextprotocol/mcpb/issues/45) (as of Feb 2026) that causes Node.js extensions to crash after receiving the MCP `initialize` message. This affects many published extensions (Postman, Socket, PDF Filler, etc.), not just ours.
+
+**With system Node.js**: Extension works perfectly end-to-end:
+- ✅ Docker setup completes (pull image, build proxy, start containers)
+- ✅ MCP protocol handshake succeeds
+- ✅ All 18 tools load correctly
+- ✅ Queries to Confluence and Jira work
+
+**With built-in Node.js**: Extension crashes silently with zero stderr output.
+
+### Deployment Checklist
+
+When deploying to your team:
+
+1. **Upload** `eruditis-atlassian-1.0.5.mcpb` to Claude team settings
+2. **Document** the Node.js prerequisite (link to README.md)
+3. **Test** on one machine first (Windows + Mac if your team has both)
+4. **Verify** Docker Desktop is running before use
+5. **Monitor** for upstream fix to built-in Node.js bug (we can re-enable it later)
+
 ### Repository Security Improvements
 
 We also fixed security issues in the repository:
@@ -63,13 +98,31 @@ and tmpfs mount configuration. **21 tests, runs in <1 second.**
 node --test tests/integration.test.js
 ```
 
-Builds the proxy image, starts it with full security hardening, and runs an
-end-to-end MCP initialize handshake through the proxy. **7 tests, ~20 seconds.**
+Builds the proxy image, starts it with full security hardening, runs an
+end-to-end MCP initialize handshake through the proxy, and **simulates Claude
+Desktop's restricted PATH environment** to catch issues before users see them.
+**8 tests, ~20 seconds.**
 
 ### Run Both
 
 ```bash
 node --test tests/*.test.js
+```
+
+### Test Cleanup
+
+Integration tests clean up containers and networks automatically, but **leave the test proxy image** (`eruditis/atlassian-proxy:test`, ~18MB) to speed up subsequent test runs.
+
+To clean up test images:
+```bash
+docker rmi eruditis/atlassian-proxy:test
+```
+
+Or clean up all test resources at once:
+```bash
+docker rm -f mcpb-test-proxy 2>/dev/null
+docker network rm mcpb-test-net 2>/dev/null
+docker rmi eruditis/atlassian-proxy:test 2>/dev/null
 ```
 
 ## Known Pitfalls (Lessons Learned)
@@ -94,6 +147,13 @@ These are bugs we've hit and fixed. The test suite catches all of them:
 
 5. **GHCR requires a classic PAT.** Fine-grained GitHub tokens don't support
    the `write:packages` scope. You must use a classic Personal Access Token.
+
+6. **Claude Desktop PATH is different from system PATH.** Claude Desktop's
+   built-in Node.js on Windows has a restricted PATH that may not include
+   Docker. The integration test suite now simulates this environment with a
+   restricted PATH to catch issues at design time. Use top-level try/catch
+   and force stderr flush (fsyncSync) to ensure diagnostic output appears
+   even when initialization fails.
 
 ## How to Build and Release
 

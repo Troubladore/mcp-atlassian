@@ -16,8 +16,13 @@ Connect Claude to Eruditis Confluence and Jira via the [mcp-atlassian](https://g
 - **Docker Desktop** must be installed and running on your machine
   - macOS/Windows: [Download Docker Desktop](https://docker.com/products/docker-desktop)
   - Linux/WSL2: Docker Engine with Docker CLI
+- **Node.js 18+** installed on your system (`node --version` to check)
+  - Download from [nodejs.org](https://nodejs.org)
 - **Claude Desktop** (latest version)
   - Download from [claude.ai/download](https://claude.ai/download)
+- **Disable "Use built-in Node.js for MCP"** in Claude Desktop settings
+  - Go to **Settings > Extensions** and toggle off "Use built-in Node.js for MCP"
+  - See [Known Issue](#known-issue-built-in-nodejs) below for details
 
 ## Installation
 
@@ -32,7 +37,7 @@ Connect Claude to Eruditis Confluence and Jira via the [mcp-atlassian](https://g
 Open a terminal and run:
 
 ```bash
-docker pull ghcr.io/sooperset/mcp-atlassian:v0.11.10
+docker pull ghcr.io/troubladore/mcp-atlassian:v0.11.10
 ```
 
 This ensures the Docker image is available before you try to use the extension.
@@ -134,7 +139,7 @@ docker run --rm -i \
   -e JIRA_URL=https://eruditis.atlassian.net \
   -e JIRA_USERNAME=you@gmail.com \
   -e JIRA_API_TOKEN=your_token \
-  ghcr.io/sooperset/mcp-atlassian:v0.11.10
+  ghcr.io/troubladore/mcp-atlassian:v0.11.10
 ```
 
 ### Authentication failures (401)
@@ -171,6 +176,35 @@ If tools aren't working and you see proxy errors:
 
 If you're using a self-hosted Atlassian instance (Server/Data Center), you may need to modify the proxy allowlist (see BUILD_NOTES.md).
 
+## Known Issue: Built-in Node.js
+
+Claude Desktop includes a built-in Node.js runtime for running extensions. As of
+February 2026, this runtime has a known bug that causes many Node.js extensions
+to crash immediately after receiving the MCP `initialize` message. stderr output
+from the server process is silently swallowed, making the issue impossible to
+debug from the extension side.
+
+**Tracked at**: [modelcontextprotocol/mcpb#45](https://github.com/modelcontextprotocol/mcpb/issues/45)
+
+**Affected extensions**: This is not specific to our extension. Postman, Socket,
+PDF Filler, and many other published extensions are affected.
+
+**Workaround**: Disable the built-in Node.js and use your system Node.js instead:
+
+1. Open Claude Desktop
+2. Go to **Settings > Extensions**
+3. Toggle off **"Use built-in Node.js for MCP"**
+4. Ensure Node.js 18+ is installed on your system (`node --version`)
+5. Restart Claude Desktop
+
+**Status**: The extension is **fully functional** with system Node.js. All features work:
+- ✅ Docker setup (pulls image, builds proxy, starts containers)
+- ✅ Network egress filtering (only Atlassian domains allowed)
+- ✅ MCP protocol handshake and tool loading
+- ✅ Confluence and Jira queries
+
+We will re-enable the built-in runtime once Anthropic resolves the upstream issue.
+
 ## Updates
 
 When a new version of mcp-atlassian is released:
@@ -179,7 +213,7 @@ When a new version of mcp-atlassian is released:
 2. Reinstall the extension in Claude Desktop
 3. Pull the new Docker image:
    ```bash
-   docker pull ghcr.io/sooperset/mcp-atlassian:vX.Y.Z
+   docker pull ghcr.io/troubladore/mcp-atlassian:vX.Y.Z
    ```
 
 ## Support
