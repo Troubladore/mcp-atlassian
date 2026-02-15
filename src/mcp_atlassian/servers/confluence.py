@@ -471,7 +471,14 @@ async def create_page(
     emoji: Annotated[
         str | None,
         Field(
-            description="(Optional) Page title emoji (icon shown in navigation). Can be any emoji character like '📝', '🚀', '📚'. Set to null/None to remove.",
+            description="(Optional) Page title emoji (icon shown in navigation). Can be any emoji character like '📝', '🚀', '📚'.",
+            default=None,
+        ),
+    ] = None,
+    page_width: Annotated[
+        str | None,
+        Field(
+            description="(Optional) Page layout width. Options: 'full-width' (spans entire browser width) or 'fixed-width' (centered with fixed max width).",
             default=None,
         ),
     ] = None,
@@ -487,6 +494,7 @@ async def create_page(
         content_format: The format of the content ('markdown', 'wiki', or 'storage').
         enable_heading_anchors: Whether to enable heading anchors (markdown only).
         emoji: Optional page title emoji (icon shown in navigation).
+        page_width: Optional page layout width ('full-width' or 'fixed-width').
 
     Returns:
         JSON string representing the created page object.
@@ -521,6 +529,7 @@ async def create_page(
         else False,
         content_representation=content_representation,
         emoji=emoji,
+        page_width=page_width,
     )
     result = page.to_simplified_dict()
     return json.dumps(
@@ -577,6 +586,13 @@ async def update_page(
             default=None,
         ),
     ] = None,
+    page_width: Annotated[
+        str | None,
+        Field(
+            description="(Optional) Page layout width. Options: 'full-width' (spans entire browser width) or 'fixed-width' (centered with fixed max width). Set to null/None to keep current setting, empty string to reset to default.",
+            default=None,
+        ),
+    ] = None,
 ) -> str:
     """Update an existing Confluence page.
 
@@ -591,6 +607,7 @@ async def update_page(
         content_format: The format of the content ('markdown', 'wiki', or 'storage').
         enable_heading_anchors: Whether to enable heading anchors (markdown only).
         emoji: Optional page title emoji (icon shown in navigation).
+        page_width: Optional page layout width ('full-width' or 'fixed-width').
 
     Returns:
         JSON string representing the updated page object.
@@ -627,6 +644,7 @@ async def update_page(
         else False,
         content_representation=content_representation,
         emoji=emoji,
+        page_width=page_width,
     )
     page_data = updated_page.to_simplified_dict()
     return json.dumps(

@@ -88,8 +88,9 @@ class PagesMixin(ConfluenceClient):
             # Use the appropriate content format based on the convert_to_markdown flag
             page_content = processed_markdown if convert_to_markdown else processed_html
 
-            # Fetch page emoji from content properties
+            # Fetch page emoji and width from content properties
             emoji = self._get_page_emoji(page_id)
+            page_width = self._get_page_width(page_id)
 
             # Create and return the ConfluencePage model
             return ConfluencePage.from_api_response(
@@ -101,6 +102,7 @@ class PagesMixin(ConfluenceClient):
                 content_format="storage" if not convert_to_markdown else "markdown",
                 is_cloud=self.config.is_cloud,
                 emoji=emoji,
+                page_width=page_width,
             )
         except HTTPError as http_err:
             if http_err.response is not None and http_err.response.status_code in [
@@ -289,6 +291,86 @@ class PagesMixin(ConfluenceClient):
             logger.warning(f"Error setting emoji for page {page_id}: {str(e)}")
             return False
 
+    def _get_page_width(self, page_id: str) -> str | None:
+        """Get the page layout width from content properties.
+
+        The page width (full-width vs fixed-width) is stored as a content property
+        with key 'content-appearance-published' or 'content-appearance-draft'.
+
+        Args:
+            page_id: The ID of the page
+
+        Returns:
+            The width setting if set ('full-width' or 'fixed-width'), None otherwise
+        """
+        try:
+            # For token/basic auth, use v1 API via atlassian library
+            properties = self.confluence.get_page_properties(page_id)
+            if not properties:
+                return None
+
+            results = properties.get("results", [])
+            for prop in results:
+                key = prop.get("key", "")
+                if key in ("content-appearance-published", "content-appearance-draft"):
+                    value = prop.get("value", {})
+                    # The value is stored as a dict with "value" key or directly as string
+                    if isinstance(value, dict):
+                        return value.get("value")
+                    elif isinstance(value, str):
+                        return value
+
+            return None
+
+        except Exception as e:
+            logger.debug(f"Error fetching page width for page {page_id}: {str(e)}")
+            return None
+
+    def _set_page_width(self, page_id: str, width: str | None) -> bool:
+        """Set the page layout width.
+
+        The page width (fixed-width vs full-width) is stored as content properties.
+        Both 'content-appearance-draft' and 'content-appearance-published' are set
+        to ensure the width appears in both view and edit modes.
+
+        Args:
+            page_id: The ID of the page
+            width: The width to set ('full-width' or 'fixed-width'), or None to use default
+
+        Returns:
+            True if the operation succeeded, False otherwise
+        """
+        try:
+            # Validate width value
+            if width is not None and width not in ["full-width", "fixed-width"]:
+                logger.warning(
+                    f"Invalid page width '{width}'. Must be 'full-width' or 'fixed-width'"
+                )
+                return False
+
+            # Set both published and draft properties
+            published_ok = self._set_single_property(
+                page_id, "content-appearance-published", width
+            )
+            draft_ok = self._set_single_property(
+                page_id, "content-appearance-draft", width
+            )
+
+            if not published_ok:
+                logger.warning(
+                    f"Failed to set content-appearance-published for page {page_id}"
+                )
+            if not draft_ok:
+                logger.warning(
+                    f"Failed to set content-appearance-draft for page {page_id}"
+                )
+
+            return published_ok and draft_ok
+
+        except Exception as e:
+            logger.warning(f"Error setting page width for page {page_id}: {str(e)}")
+            return False
+
     def get_page_by_title(
         self, space_key: str, title: str, *, convert_to_markdown: bool = True
     ) -> ConfluencePage | None:
@@ -331,8 +413,9 @@ class PagesMixin(ConfluenceClient):
             # Use the appropriate content format based on the convert_to_markdown flag
             page_content = processed_markdown if convert_to_markdown else processed_html
 
-            # Fetch page emoji from content properties
+            # Fetch page emoji and width from content properties
             emoji = self._get_page_emoji(str(page.get("id", "")))
+            page_width = self._get_page_width(str(page.get("id", "")))
 
             # Create and return the ConfluencePage model
             return ConfluencePage.from_api_response(
@@ -344,6 +427,7 @@ class PagesMixin(ConfluenceClient):
                 content_format="storage" if not convert_to_markdown else "markdown",
                 is_cloud=self.config.is_cloud,
                 emoji=emoji,
+                page_width=page_width,
             )
 
         except KeyError as e:
@@ -435,6 +519,7 @@ class PagesMixin(ConfluenceClient):
         enable_heading_anchors: bool = False,
         content_representation: str | None = None,
         emoji: str | None = None,
+        page_width: str | None = None,
     ) -> ConfluencePage:
         """
         Create a new page in a Confluence space.
@@ -448,6 +533,7 @@ class PagesMixin(ConfluenceClient):
             enable_heading_anchors: Whether to enable automatic heading anchor generation (default: False, keyword-only)
             content_representation: Content format when is_markdown=False ('wiki' or 'storage', keyword-only)
             emoji: Optional emoji character for the page title icon (keyword-only)
+            page_width: Optional page layout width ('full-width' or 'fixed-width', keyword-only)
 
         Returns:
             ConfluencePage model containing the new page's data
@@ -502,6 +588,10 @@ class PagesMixin(ConfluenceClient):
             if emoji:
                 self._set_page_emoji(page_id, emoji)
 
+            # Set the page width if provided
+            if page_width:
+                self._set_page_width(page_id, page_width)
+
             return self.get_page_content(page_id)
         except Exception as e:
             logger.error(
@@ -524,6 +614,7 @@ class PagesMixin(ConfluenceClient):
         enable_heading_anchors: bool = False,
         content_representation: str | None = None,
         emoji: str | None = None,
+        page_width: str | None = None,
     ) -> ConfluencePage:
         """
         Update an existing page in Confluence.
@@ -539,6 +630,7 @@ class PagesMixin(ConfluenceClient):
             enable_heading_anchors: Whether to enable automatic heading anchor generation (default: False, keyword-only)
             content_representation: Content format when is_markdown=False ('wiki' or 'storage', keyword-only)
             emoji: Optional emoji character for the page title icon (keyword-only). Pass empty string to remove emoji.
+            page_width: Optional page layout width ('full-width' or 'fixed-width', keyword-only). Pass empty string to reset to default.
 
         Returns:
             ConfluencePage model containing the updated page's data
@@ -598,6 +690,12 @@ class PagesMixin(ConfluenceClient):
                 # Empty string means remove emoji, otherwise set it
                 emoji_to_set = emoji if emoji else None
                 self._set_page_emoji(page_id, emoji_to_set)
+
+            # Set or remove the page width if provided
+            if page_width is not None:
+                # Empty string means reset to default, otherwise set it
+                width_to_set = page_width if page_width else None
+                self._set_page_width(page_id, width_to_set)
 
             # After update, refresh the page data
             return self.get_page_content(page_id)
