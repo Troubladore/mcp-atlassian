@@ -42,6 +42,21 @@ describe("proxy Docker image", () => {
       `Docker build did not complete successfully:\n${output.slice(-500)}`
     );
   });
+
+  it("can be found by server/index.js using __dirname", () => {
+    // This tests that server/index.js can correctly resolve the path to proxy/
+    // when running from the packaged structure (where __dirname is server/)
+    const serverDir = path.join(ROOT, "server");
+    const proxyFromServer = path.join(serverDir, "..", "proxy");
+    const dockerfilePath = path.join(proxyFromServer, "Dockerfile");
+
+    assert.ok(
+      require("fs").existsSync(dockerfilePath),
+      `server/index.js will fail to find Dockerfile at: ${dockerfilePath}\n` +
+      `This path should resolve to: ${PROXY_DIR}/Dockerfile\n` +
+      `Make sure buildProxyImage() uses path.join(__dirname, "..", "proxy")`
+    );
+  });
 });
 
 // =============================================================================
