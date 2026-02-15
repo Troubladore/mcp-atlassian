@@ -293,11 +293,12 @@ def run_oauth_flow(args: OAuthSetupArgs) -> bool:
             )
             logger.info("------------------------------------------------------------")
             logger.info(f"ATLASSIAN_OAUTH_CLIENT_ID={oauth_config.client_id}")
-            logger.info(f"ATLASSIAN_OAUTH_CLIENT_SECRET={oauth_config.client_secret}")
+            logger.info(f"ATLASSIAN_OAUTH_CLIENT_SECRET={'*' * 8}...{oauth_config.client_secret[-4:] if len(oauth_config.client_secret) > 4 else '****'}")
             logger.info(f"ATLASSIAN_OAUTH_REDIRECT_URI={oauth_config.redirect_uri}")
             logger.info(f"ATLASSIAN_OAUTH_SCOPE={oauth_config.scope}")
             logger.info(f"ATLASSIAN_OAUTH_CLOUD_ID={oauth_config.cloud_id}")
             logger.info("------------------------------------------------------------")
+            logger.info("\n⚠️  Note: Client secret is masked above. Copy it from your OAuth app configuration.")
             logger.info("")
             logger.info(
                 "Note: The tokens themselves are not set as environment variables for security reasons."
@@ -351,14 +352,22 @@ def run_oauth_flow(args: OAuthSetupArgs) -> bool:
                 }
             }
 
-            # Pretty print the VS Code configuration JSON
-            vscode_json = json.dumps(vscode_config, indent=4)
+            # Create a copy for display with masked secret
+            vscode_config_display = json.loads(json.dumps(vscode_config))
+            if "mcpServers" in vscode_config_display and "mcp-atlassian" in vscode_config_display["mcpServers"]:
+                env_vars = vscode_config_display["mcpServers"]["mcp-atlassian"].get("env", {})
+                if "ATLASSIAN_OAUTH_CLIENT_SECRET" in env_vars:
+                    secret = env_vars["ATLASSIAN_OAUTH_CLIENT_SECRET"]
+                    env_vars["ATLASSIAN_OAUTH_CLIENT_SECRET"] = f"{'*' * 8}...{secret[-4:] if len(secret) > 4 else '****'}"
+
+            vscode_json = json.dumps(vscode_config_display, indent=4)
 
             logger.info("\n=== VS CODE CONFIGURATION ===")
             logger.info("Add the following to your VS Code settings.json file:")
             logger.info("------------------------------------------------------------")
             logger.info(vscode_json)
             logger.info("------------------------------------------------------------")
+            logger.info("\n⚠️  Note: Client secret is masked above. Replace the masked value with your actual client secret.")
             logger.info(
                 "\nNote: If you already have an 'mcp' configuration in settings.json, merge this with your existing configuration."
             )

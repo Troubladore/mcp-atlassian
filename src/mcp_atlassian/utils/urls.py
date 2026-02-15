@@ -31,9 +31,11 @@ def is_atlassian_cloud_url(url: str) -> bool:
         return False
 
     # The standard check for Atlassian cloud domains
+    # Use endswith() to prevent URL validation bypass via substring matching
     return (
-        ".atlassian.net" in hostname
-        or ".jira.com" in hostname
-        or ".jira-dev.com" in hostname
-        or "api.atlassian.com" in hostname
+        hostname.endswith(".atlassian.net")
+        or hostname.endswith(".jira.com")
+        or hostname.endswith(".jira-dev.com")
+        or hostname == "api.atlassian.com"
+        or hostname.endswith(".atlassian.com")
     )
