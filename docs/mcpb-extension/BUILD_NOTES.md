@@ -2,20 +2,44 @@
 
 ## What We've Built
 
-This directory contains a complete `.mcpb` (Model Context Protocol Bundle) extension that enables one-click installation of the mcp-atlassian server for Claude Desktop.
+This directory contains a complete `.mcpb` (Model Context Protocol Bundle) extension that enables one-click installation of the mcp-atlassian server for Claude Desktop with network egress filtering.
 
 ### Files Created
 
 1. **manifest.json** - Extension metadata and configuration schema
-2. **server/index.js** - Node.js wrapper that spawns the Docker container
-3. **README.md** - End-user installation and usage instructions
-4. **BUILD_NOTES.md** - This file (developer notes)
+2. **server/index.js** - Node.js wrapper that manages Docker containers
+3. **proxy/Dockerfile** - Atlassian-only filtering HTTP proxy (Squid)
+4. **proxy/squid.conf** - Proxy allowlist configuration
+5. **README.md** - End-user installation and usage instructions
+6. **BUILD_NOTES.md** - This file (developer notes)
 
-### Security Improvements
+### Security Architecture
 
-We also fixed a security issue in the repository:
+**Network Egress Filtering** (Defense-in-Depth):
+- Companion Squid HTTP proxy container allows connections ONLY to Atlassian domains
+- mcp-atlassian container routes ALL traffic through proxy
+- Prevents data exfiltration even if container or dependencies are compromised
 
-- **`.devcontainer/Dockerfile`**: Added `USER vscode` statement to run as non-root user (was flagged as HIGH severity by Trivy)
+**Allowed Domains**:
+- `*.atlassian.net` (Atlassian Cloud)
+- `*.jira.com` (Jira-specific endpoints)
+- `*.atlassian.com` (API endpoints)
+- Direct IP access is BLOCKED (forces DNS resolution for domain checking)
+
+**Container Hardening**:
+- Both containers run as non-root users
+- Read-only filesystems with restricted tmpfs
+- All capabilities dropped
+- Memory and CPU limits enforced
+- No volume mounts or host network access
+
+### Repository Security Improvements
+
+We also fixed security issues in the repository:
+
+- **`.devcontainer/Dockerfile`**: Added `USER vscode` statement (Trivy HIGH)
+- **15 GitHub Code Scanning alerts**: Fixed clear-text logging, ReDoS, URL validation
+- **Security documentation**: Comprehensive scanning protocol and CVE analysis
 
 ## How to Build the `.mcpb` File
 
@@ -101,7 +125,50 @@ When mcp-atlassian releases a new version:
 
 This extension implements defense-in-depth security:
 
+### Network Egress Filtering
+
+**Architecture**:
+```
+Claude Desktop
+    ↓ stdio
+server/index.js (Node.js)
+    ↓ manages
+    ├── atlassian-proxy container (Squid HTTP proxy)
+    │     └── Allows ONLY: *.atlassian.net, *.jira.com, *.atlassian.com
+    └── mcp-atlassian container
+          └── Routes ALL traffic through proxy
+```
+
+**How it works**:
+1. Extension starts proxy container on first use
+2. Proxy listens on 127.0.0.1:3128 (localhost only, not exposed to network)
+3. mcp-atlassian container configured with `HTTP_PROXY` and `HTTPS_PROXY`
+4. Squid proxy checks every outbound connection against allowlist
+5. Non-Atlassian domains are blocked (returns 403 Forbidden)
+
+**Why this matters**:
+- Even if mcp-atlassian or its dependencies are compromised
+- Malicious code CANNOT exfiltrate data to arbitrary endpoints
+- CANNOT download additional malware from internet
+- CANNOT participate in botnet/C2 communication
+- CAN ONLY talk to Atlassian APIs (intended functionality)
+
+**Proxy security**:
+- Runs as non-root user (`squid`)
+- Read-only filesystem with restricted tmpfs
+- All capabilities dropped
+- No caching (just a filtering proxy)
+- Blocks direct IP access (forces DNS for domain validation)
+
+**Lifecycle management**:
+- Proxy container runs persistently (`--restart=unless-stopped`)
+- Shared across all extension invocations (efficient)
+- Automatically started if not running
+- Built from source on first use (no pre-built image download)
+
 ### Container Hardening
+
+Both mcp-atlassian and proxy containers:
 - `--cap-drop=ALL` - Drops all Linux capabilities
 - `--security-opt no-new-privileges:true` - Prevents privilege escalation
 - `--read-only` - Read-only root filesystem

@@ -4,10 +4,12 @@ Connect Claude to Eruditis Confluence and Jira via the [mcp-atlassian](https://g
 
 ## Features
 
+- **Network egress filtering**: Container can ONLY connect to Atlassian domains (*.atlassian.net, *.jira.com) - prevents data exfiltration
 - **Secure by default**: Runs in a Docker container with no filesystem access and no host network access
 - **Read-only by default**: Write operations must be explicitly enabled
 - **Curated tool list**: Only safe operations are exposed (no delete operations)
 - **Encrypted credentials**: API tokens stored in OS keychain (macOS Keychain or Windows Credential Manager)
+- **Automatic setup**: Filtering proxy auto-starts on first use, no manual configuration needed
 
 ## Prerequisites
 
@@ -84,13 +86,35 @@ Leave empty to access all spaces/projects your account has permission to view.
 
 ## Security
 
-This extension follows security best practices:
+This extension implements defense-in-depth security:
 
-- **Container isolation**: Runs in Docker with `--cap-drop=ALL`, `--read-only`, and `no-new-privileges`
-- **Network restrictions**: No host network access, only outbound HTTPS to `*.atlassian.net`
+### Network Egress Filtering
+
+The extension automatically manages a filtering HTTP proxy that allows connections ONLY to Atlassian domains:
+
+- ✅ **Allowed**: `*.atlassian.net`, `*.jira.com`, `*.atlassian.com`
+- ❌ **Blocked**: All other domains (api.openai.com, evil.com, etc.)
+
+**How it works**:
+1. First time you use the extension, a Squid proxy container auto-starts
+2. The mcp-atlassian container routes ALL traffic through this proxy
+3. Proxy checks every outbound connection against the allowlist
+4. Non-Atlassian domains return 403 Forbidden
+
+**Why this matters**: Even if the mcp-atlassian server or its dependencies are compromised, malicious code cannot exfiltrate your Atlassian data to arbitrary endpoints or download additional malware.
+
+### Container Isolation
+
+- **Container hardening**: Runs in Docker with `--cap-drop=ALL`, `--read-only`, and `no-new-privileges`
 - **Resource limits**: 256MB memory limit, 0.5 CPU limit
-- **Pinned version**: Uses a specific Docker image tag (not `latest`)
-- **Credential encryption**: API tokens stored encrypted in OS keychain
+- **Pinned version**: Uses specific Docker image tags (not `latest`)
+- **No host access**: No volume mounts, no host network access
+
+### Credential Security
+
+- **Encrypted storage**: API tokens stored in OS keychain (macOS Keychain or Windows Credential Manager)
+- **Never logged**: Credentials masked in all log output
+- **Minimal exposure**: Only passed via environment variables to container
 
 ## Troubleshooting
 
@@ -121,7 +145,33 @@ Verify you're using an API token (not your account password). Generate a fresh o
 
 Check that your Atlassian account has the necessary permissions for the spaces/projects you're trying to access.
 
-## Updating
+### Proxy container issues
+
+If you see "Failed to start filtering proxy" errors:
+
+```bash
+# Check if proxy container is running
+docker ps --filter name=eruditis-atlassian-proxy
+
+# View proxy logs
+docker logs eruditis-atlassian-proxy
+
+# Restart proxy manually
+docker rm -f eruditis-atlassian-proxy
+# Extension will rebuild on next use
+```
+
+### Connection blocked by proxy
+
+If tools aren't working and you see proxy errors:
+
+1. Verify your Atlassian URL is correct in extension settings
+2. Check proxy logs: `docker logs eruditis-atlassian-proxy`
+3. The proxy only allows: `*.atlassian.net`, `*.jira.com`, `*.atlassian.com`
+
+If you're using a self-hosted Atlassian instance (Server/Data Center), you may need to modify the proxy allowlist (see BUILD_NOTES.md).
+
+## Updates
 
 When a new version of mcp-atlassian is released:
 

@@ -1,12 +1,18 @@
 #!/usr/bin/env node
 
 // eruditis-atlassian MCPB server entry point
-// Spawns mcp-atlassian in a sandboxed Docker container and bridges stdio.
+// Spawns mcp-atlassian in a sandboxed Docker container with network egress filtering.
+// Uses a companion Squid proxy container to allow connections ONLY to Atlassian domains.
 
-const { spawn } = require("child_process");
+const { spawn, execSync } = require("child_process");
+const path = require("path");
+const fs = require("fs");
 
 // --- Configuration ---
 const IMAGE = "ghcr.io/sooperset/mcp-atlassian:v0.11.10";
+const PROXY_IMAGE = "eruditis/atlassian-proxy:latest";
+const PROXY_CONTAINER_NAME = "eruditis-atlassian-proxy";
+const PROXY_PORT = 3128;
 
 // Read config from environment (injected by Claude Desktop from user_config)
 const ATLASSIAN_URL = process.env.ATLASSIAN_URL || "";
@@ -22,6 +28,144 @@ if (!ATLASSIAN_URL || !ATLASSIAN_EMAIL || !ATLASSIAN_API_TOKEN) {
     "ERROR: Missing required configuration. Please configure your Atlassian URL, email, and API token in the extension settings.\n"
   );
   process.exit(1);
+}
+
+// --- Helper Functions ---
+
+/**
+ * Check if a Docker image exists locally
+ */
+function imageExists(image) {
+  try {
+    execSync(`docker image inspect ${image}`, { stdio: 'ignore' });
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+/**
+ * Pull a Docker image with progress feedback
+ */
+function pullImage(image) {
+  process.stderr.write(`Pulling Docker image ${image}...\n`);
+  process.stderr.write("This may take a few moments on first run.\n");
+  try {
+    execSync(`docker pull ${image}`, { stdio: 'inherit' });
+    process.stderr.write(`Successfully pulled ${image}\n`);
+    return true;
+  } catch (err) {
+    process.stderr.write(`ERROR: Failed to pull Docker image: ${err.message}\n`);
+    return false;
+  }
+}
+
+/**
+ * Check if proxy container is running
+ */
+function isProxyRunning() {
+  try {
+    const result = execSync(`docker ps --filter name=${PROXY_CONTAINER_NAME} --filter status=running --format "{{.Names}}"`,
+      { encoding: 'utf-8' });
+    return result.trim() === PROXY_CONTAINER_NAME;
+  } catch (err) {
+    return false;
+  }
+}
+
+/**
+ * Build the proxy Docker image from local Dockerfile
+ */
+function buildProxyImage() {
+  const proxyDir = path.join(__dirname, "proxy");
+
+  if (!fs.existsSync(path.join(proxyDir, "Dockerfile"))) {
+    process.stderr.write("ERROR: Proxy Dockerfile not found. The .mcpb package may be corrupted.\n");
+    return false;
+  }
+
+  process.stderr.write("Building Atlassian filtering proxy image...\n");
+  try {
+    execSync(`docker build -t ${PROXY_IMAGE} ${proxyDir}`, { stdio: 'inherit' });
+    process.stderr.write("Proxy image built successfully.\n");
+    return true;
+  } catch (err) {
+    process.stderr.write(`ERROR: Failed to build proxy image: ${err.message}\n`);
+    return false;
+  }
+}
+
+/**
+ * Start the proxy container if not already running
+ */
+function ensureProxyRunning() {
+  // Check if proxy is already running
+  if (isProxyRunning()) {
+    process.stderr.write("Atlassian filtering proxy already running.\n");
+    return true;
+  }
+
+  // Check if old proxy container exists (stopped)
+  try {
+    const existingContainer = execSync(
+      `docker ps -a --filter name=${PROXY_CONTAINER_NAME} --format "{{.Names}}"`,
+      { encoding: 'utf-8' }
+    ).trim();
+
+    if (existingContainer === PROXY_CONTAINER_NAME) {
+      process.stderr.write("Removing stopped proxy container...\n");
+      execSync(`docker rm ${PROXY_CONTAINER_NAME}`, { stdio: 'ignore' });
+    }
+  } catch (err) {
+    // Container doesn't exist, that's fine
+  }
+
+  // Build proxy image if it doesn't exist
+  if (!imageExists(PROXY_IMAGE)) {
+    process.stderr.write("Proxy image not found locally. Building...\n");
+    if (!buildProxyImage()) {
+      return false;
+    }
+  }
+
+  // Start proxy container
+  process.stderr.write("Starting Atlassian filtering proxy...\n");
+  try {
+    execSync(
+      `docker run -d --name ${PROXY_CONTAINER_NAME} \
+        --restart=unless-stopped \
+        -p 127.0.0.1:${PROXY_PORT}:3128 \
+        --cap-drop=ALL \
+        --security-opt no-new-privileges:true \
+        --read-only \
+        --tmpfs /var/cache/squid:noexec,nosuid,size=64m \
+        --tmpfs /var/log/squid:noexec,nosuid,size=16m \
+        --tmpfs /var/run/squid:noexec,nosuid,size=8m \
+        ${PROXY_IMAGE}`,
+      { stdio: 'inherit' }
+    );
+    process.stderr.write("Proxy started successfully.\n");
+
+    // Wait for proxy to be ready
+    process.stderr.write("Waiting for proxy to be ready...\n");
+    let attempts = 0;
+    while (attempts < 10) {
+      try {
+        execSync(`docker exec ${PROXY_CONTAINER_NAME} nc -z 127.0.0.1 3128`, { stdio: 'ignore' });
+        process.stderr.write("Proxy is ready.\n");
+        return true;
+      } catch (err) {
+        attempts++;
+        execSync("sleep 0.5", { stdio: 'ignore' });
+      }
+    }
+
+    process.stderr.write("WARNING: Proxy may not be fully ready, but continuing...\n");
+    return true;
+  } catch (err) {
+    process.stderr.write(`ERROR: Failed to start proxy container: ${err.message}\n`);
+    return false;
+  }
 }
 
 // Normalize URL: strip trailing slash
@@ -73,12 +217,29 @@ const enabledTools = ENABLE_WRITE
   ? [...READ_TOOLS, ...WRITE_TOOLS]
   : READ_TOOLS;
 
+// --- Ensure Docker images and proxy are ready ---
+
+// 1. Ensure mcp-atlassian image is available
+if (!imageExists(IMAGE)) {
+  process.stderr.write(`Docker image ${IMAGE} not found locally.\n`);
+  if (!pullImage(IMAGE)) {
+    process.stderr.write("Failed to pull Docker image. Please check your internet connection and Docker installation.\n");
+    process.exit(1);
+  }
+}
+
+// 2. Ensure proxy container is running (network egress filtering)
+if (!ensureProxyRunning()) {
+  process.stderr.write("Failed to start filtering proxy. Extension cannot run without network restrictions.\n");
+  process.exit(1);
+}
+
 // --- Build Docker args ---
 const dockerArgs = [
   "run",
   "--rm",           // Remove container on exit
   "-i",             // Interactive (for stdio transport)
-  "--network=bridge", // Default bridge network (outbound only, no host access)
+  "--network=bridge", // Default bridge network (outbound via proxy only)
   "--cap-drop=ALL", // Drop all Linux capabilities
   "--security-opt", "no-new-privileges:true", // Prevent privilege escalation
   "--read-only",    // Read-only root filesystem
@@ -96,6 +257,11 @@ const dockerArgs = [
 
   // Tool filtering
   "-e", `ENABLED_TOOLS=${enabledTools.join(",")}`,
+
+  // Network egress filtering via proxy
+  "-e", `HTTP_PROXY=http://host.docker.internal:${PROXY_PORT}`,
+  "-e", `HTTPS_PROXY=http://host.docker.internal:${PROXY_PORT}`,
+  "-e", "NO_PROXY=localhost,127.0.0.1",
 ];
 
 // Optional space/project filters
