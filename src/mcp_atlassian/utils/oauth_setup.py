@@ -293,12 +293,12 @@ def run_oauth_flow(args: OAuthSetupArgs) -> bool:
             )
             logger.info("------------------------------------------------------------")
             logger.info(f"ATLASSIAN_OAUTH_CLIENT_ID={oauth_config.client_id}")
-            logger.info(f"ATLASSIAN_OAUTH_CLIENT_SECRET={'*' * 8}...{oauth_config.client_secret[-4:] if len(oauth_config.client_secret) > 4 else '****'}")
+            logger.info("ATLASSIAN_OAUTH_CLIENT_SECRET=<YOUR_CLIENT_SECRET_HERE>")
             logger.info(f"ATLASSIAN_OAUTH_REDIRECT_URI={oauth_config.redirect_uri}")
             logger.info(f"ATLASSIAN_OAUTH_SCOPE={oauth_config.scope}")
             logger.info(f"ATLASSIAN_OAUTH_CLOUD_ID={oauth_config.cloud_id}")
             logger.info("------------------------------------------------------------")
-            logger.info("\n⚠️  Note: Client secret is masked above. Copy it from your OAuth app configuration.")
+            logger.info("\n⚠️  Note: Replace <YOUR_CLIENT_SECRET_HERE> with your actual OAuth client secret from your app configuration.")
             logger.info("")
             logger.info(
                 "Note: The tokens themselves are not set as environment variables for security reasons."
@@ -352,13 +352,13 @@ def run_oauth_flow(args: OAuthSetupArgs) -> bool:
                 }
             }
 
-            # Create a copy for display with masked secret
+            # Create a copy for display without the secret (completely remove it)
             vscode_config_display = json.loads(json.dumps(vscode_config))
             if "mcpServers" in vscode_config_display and "mcp-atlassian" in vscode_config_display["mcpServers"]:
                 env_vars = vscode_config_display["mcpServers"]["mcp-atlassian"].get("env", {})
                 if "ATLASSIAN_OAUTH_CLIENT_SECRET" in env_vars:
-                    secret = env_vars["ATLASSIAN_OAUTH_CLIENT_SECRET"]
-                    env_vars["ATLASSIAN_OAUTH_CLIENT_SECRET"] = f"{'*' * 8}...{secret[-4:] if len(secret) > 4 else '****'}"
+                    # Completely remove the secret from display config (don't even reference it)
+                    env_vars["ATLASSIAN_OAUTH_CLIENT_SECRET"] = "<YOUR_CLIENT_SECRET_HERE>"
 
             vscode_json = json.dumps(vscode_config_display, indent=4)
 
@@ -367,7 +367,7 @@ def run_oauth_flow(args: OAuthSetupArgs) -> bool:
             logger.info("------------------------------------------------------------")
             logger.info(vscode_json)
             logger.info("------------------------------------------------------------")
-            logger.info("\n⚠️  Note: Client secret is masked above. Replace the masked value with your actual client secret.")
+            logger.info("\n⚠️  Note: Replace <YOUR_CLIENT_SECRET_HERE> with your actual OAuth client secret.")
             logger.info(
                 "\nNote: If you already have an 'mcp' configuration in settings.json, merge this with your existing configuration."
             )
