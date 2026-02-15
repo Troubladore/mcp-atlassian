@@ -166,10 +166,15 @@ function isProxyRunning() {
  * Build the proxy Docker image from local Dockerfile
  */
 function buildProxyImage() {
-  const proxyDir = path.join(__dirname, "proxy");
+  // proxy/ is a sibling of server/, so go up one level
+  const proxyDir = path.join(__dirname, "..", "proxy");
+  const dockerfilePath = path.join(proxyDir, "Dockerfile");
 
-  if (!fs.existsSync(path.join(proxyDir, "Dockerfile"))) {
-    log("ERROR: Proxy Dockerfile not found. The .mcpb package may be corrupted.");
+  if (!fs.existsSync(dockerfilePath)) {
+    log(`ERROR: Proxy Dockerfile not found at: ${dockerfilePath}`);
+    log(`__dirname is: ${__dirname}`);
+    log(`Looking for proxy in: ${proxyDir}`);
+    log("The .mcpb package may be corrupted.");
     return false;
   }
 
