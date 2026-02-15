@@ -478,7 +478,7 @@ async def create_page(
     page_width: Annotated[
         str | None,
         Field(
-            description="Page width: 'default'=Narrow, 'full-width'=Wide, 'max'=Max",
+            description="Page width: 'default'=Narrow (standard), 'full-width'=Wide, 'max'=Max. Omit to use Confluence default.",
             default=None,
         ),
     ] = None,
@@ -589,7 +589,7 @@ async def update_page(
     page_width: Annotated[
         str | None,
         Field(
-            description="Page width: 'default'=Narrow, 'full-width'=Wide, 'max'=Max",
+            description="Page width: 'default'=Narrow (standard), 'full-width'=Wide, 'max'=Max. Omit to use Confluence default.",
             default=None,
         ),
     ] = None,
