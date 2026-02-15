@@ -141,8 +141,8 @@ def test_configure_ssl_verification_disabled_with_real_session():
 
         # Should add custom adapters for http and https protocols
         assert len(session.adapters) == original_adapters_count + 2
-        assert "https://example.com" in session.adapters
-        assert "http://example.com" in session.adapters
+        assert "https://example.com" in session.adapters.keys()
+        assert "http://example.com" in session.adapters.keys()
         assert isinstance(session.adapters["https://example.com"], SSLIgnoreAdapter)
         assert isinstance(session.adapters["http://example.com"], SSLIgnoreAdapter)
 
