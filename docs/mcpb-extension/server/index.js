@@ -128,13 +128,23 @@ function ensureProxyRunning() {
     }
   }
 
+  // Create Docker network for proxy and mcp-atlassian
+  const networkName = "eruditis-atlassian-net";
+  try {
+    execSync(`docker network inspect ${networkName}`, { stdio: 'ignore' });
+  } catch (err) {
+    // Network doesn't exist, create it
+    process.stderr.write("Creating Docker network...\n");
+    execSync(`docker network create ${networkName}`, { stdio: 'ignore' });
+  }
+
   // Start proxy container
   process.stderr.write("Starting Atlassian filtering proxy...\n");
   try {
     execSync(
       `docker run -d --name ${PROXY_CONTAINER_NAME} \
         --restart=unless-stopped \
-        -p 127.0.0.1:${PROXY_PORT}:3128 \
+        --network=${networkName} \
         --cap-drop=ALL \
         --security-opt no-new-privileges:true \
         --read-only \
@@ -235,11 +245,13 @@ if (!ensureProxyRunning()) {
 }
 
 // --- Build Docker args ---
+const networkName = "eruditis-atlassian-net";
+
 const dockerArgs = [
   "run",
   "--rm",           // Remove container on exit
   "-i",             // Interactive (for stdio transport)
-  "--network=bridge", // Default bridge network (outbound via proxy only)
+  `--network=${networkName}`, // Isolated network with proxy (no published ports)
   "--cap-drop=ALL", // Drop all Linux capabilities
   "--security-opt", "no-new-privileges:true", // Prevent privilege escalation
   "--read-only",    // Read-only root filesystem
@@ -258,9 +270,9 @@ const dockerArgs = [
   // Tool filtering
   "-e", `ENABLED_TOOLS=${enabledTools.join(",")}`,
 
-  // Network egress filtering via proxy
-  "-e", `HTTP_PROXY=http://host.docker.internal:${PROXY_PORT}`,
-  "-e", `HTTPS_PROXY=http://host.docker.internal:${PROXY_PORT}`,
+  // Network egress filtering via proxy (use container name for DNS)
+  "-e", `HTTP_PROXY=http://${PROXY_CONTAINER_NAME}:3128`,
+  "-e", `HTTPS_PROXY=http://${PROXY_CONTAINER_NAME}:3128`,
   "-e", "NO_PROXY=localhost,127.0.0.1",
 ];
 
