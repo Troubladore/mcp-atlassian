@@ -46,6 +46,14 @@ grype sbom:security/scans/sbom-$(date +%Y%m%d).json --only-fixed \
 # 6. Check Dependabot alerts
 gh api repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)/dependabot/alerts \
   --jq '.[] | select(.state == "open")'
+
+# 7. Check GitHub Code Scanning (application vulnerabilities)
+gh api repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)/code-scanning/alerts \
+  --jq '.[] | select(.state == "open") | {number, rule: .rule.id, severity: .rule.severity, location: .most_recent_instance.location.path}'
+
+# 8. Check GitHub Secret Scanning (leaked credentials)
+gh api repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)/secret-scanning/alerts \
+  --jq '.[] | select(.state == "open")'
 ```
 
 See `SCANNING_PROTOCOL.md` for complete workflow and tool comparison.
@@ -288,7 +296,9 @@ On the 1st of each month:
 - [ ] Generate SBOM: `syft packages . -o json > security/scans/sbom-$(date +%Y%m%d).json`
 - [ ] Cross-validate with Grype: `grype sbom:security/scans/sbom-$(date +%Y%m%d).json --only-fixed -o json > security/scans/grype-$(date +%Y%m%d).json`
 - [ ] Check Dependabot alerts: `gh api repos/.../dependabot/alerts --jq '.[] | select(.state == "open")'`
-- [ ] Consolidate findings: Compare CVEs across all tools (see SCANNING_PROTOCOL.md Step 5)
+- [ ] Check GitHub Code Scanning: `gh api repos/.../code-scanning/alerts --jq '.[] | select(.state == "open")'`
+- [ ] Check GitHub Secret Scanning: `gh api repos/.../secret-scanning/alerts --jq '.[] | select(.state == "open")'`
+- [ ] Consolidate findings: Compare CVEs across all tools (see SCANNING_PROTOCOL.md Step 7)
 - [ ] Review all P3/P4 items: Check if patches are now available
 - [ ] Update this README with current status and "Detected By" columns
 - [ ] Archive monthly scans: Keep most recent 3 months, delete older scans

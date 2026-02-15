@@ -83,6 +83,47 @@ gh api repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)/dependabot/a
 
 **Why Integration**: Automatic alerts, GitHub ecosystem integration
 
+### 5. GitHub Code Scanning
+
+**Purpose**: Static analysis of application code for security vulnerabilities
+**Scope**: Python source code (src/, scripts/, tests/)
+**Output**: GitHub web UI, API responses
+
+```bash
+# Check Code Scanning alerts via GitHub CLI
+gh api repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)/code-scanning/alerts \
+  --jq '.[] | select(.state == "open") | {number, rule: .rule.id, severity: .rule.severity, location: .most_recent_instance.location.path}'
+
+# Group by rule type
+gh api repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)/code-scanning/alerts \
+  --jq 'group_by(.rule.id) | .[] | {rule: .[0].rule.id, severity: .[0].rule.severity, count: length}'
+```
+
+**Why Critical**: Catches application-level vulnerabilities that dependency scanners miss
+- Clear-text logging of sensitive data
+- ReDoS (Regular Expression Denial of Service)
+- Incomplete URL sanitization (SSRF risks)
+- SQL injection, XSS, command injection
+- Authentication/authorization flaws
+
+### 6. GitHub Secret Scanning
+
+**Purpose**: Detect accidentally committed secrets and credentials
+**Scope**: All files in repository, commit history
+**Output**: GitHub web UI, API responses
+
+```bash
+# Check Secret Scanning alerts via GitHub CLI
+gh api repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)/secret-scanning/alerts \
+  --jq '.[] | select(.state == "open") | {number, secret_type, location: .locations[0].details.path}'
+```
+
+**Why Critical**: Prevents credential leakage
+- API keys, tokens, passwords in code
+- AWS credentials, private keys
+- Database connection strings
+- OAuth secrets
+
 ---
 
 ## Scanning Workflow
@@ -145,7 +186,43 @@ gh api repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)/dependabot/a
 **Correlate**: Match Dependabot alerts with Trivy/pip-audit/Grype findings
 **Output location**: GitHub web UI, no file output
 
-### Step 5: Consolidate Findings
+### Step 5: Check GitHub Code Scanning
+
+```bash
+# List all open code scanning alerts
+gh api repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)/code-scanning/alerts \
+  --jq '.[] | select(.state == "open") | {number, rule: .rule.id, severity: .rule.severity, description: .rule.description, location: .most_recent_instance.location.path}'
+
+# Group by severity
+gh api repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)/code-scanning/alerts \
+  --jq '.[] | select(.state == "open")' | jq -s 'group_by(.rule.severity) | .[] | {severity: .[0].rule.severity, count: length}'
+```
+
+**Priority**: Fix ERROR severity first, then WARNING
+**Common issues**:
+- Clear-text logging of secrets
+- Regular expression DoS (ReDoS)
+- URL validation bypass
+- Injection vulnerabilities
+
+**Output location**: GitHub web UI, no file output
+
+### Step 6: Check GitHub Secret Scanning
+
+```bash
+# List open secret scanning alerts
+gh api repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)/secret-scanning/alerts \
+  --jq '.[] | select(.state == "open") | {number, secret_type, state, created_at, location: .locations[0].details.path}'
+```
+
+**Action Required**: ALL secret scanning alerts must be addressed immediately
+- Rotate compromised credentials
+- Remove secrets from code
+- Update to use environment variables or secret management
+
+**Output location**: GitHub web UI, no file output
+
+### Step 7: Consolidate Findings
 
 Create a consolidated view of all unique vulnerabilities:
 
@@ -166,7 +243,7 @@ comm -13 /tmp/trivy-cves.txt /tmp/pip-audit-cves.txt  # pip-audit only
 - If only one tool reports: May be false positive, investigate further
 - If pip-audit finds but Trivy doesn't: Python-specific issue, trust pip-audit
 
-### Step 6: Triage and Document
+### Step 8: Triage and Document
 
 For each unique vulnerability:
 
