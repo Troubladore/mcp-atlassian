@@ -21,6 +21,49 @@ confluence_mcp = FastMCP(
 )
 
 
+def parse_page_id_from_url(page_id_or_url: str | int | None) -> str | None:
+    """Extract page ID from URL or return as-is if already an ID.
+
+    Handles formats like:
+    - https://site.atlassian.net/wiki/spaces/TEAM/pages/123456/Title
+    - https://site.atlassian.net/wiki/pages/viewpage.action?pageId=123456
+    - 123456 (already an ID)
+
+    Args:
+        page_id_or_url: Page ID, URL, or None
+
+    Returns:
+        Extracted page ID or None if invalid
+    """
+    if not page_id_or_url:
+        return None
+
+    page_str = str(page_id_or_url)
+
+    # If it's not a URL, return as-is
+    if "http://" not in page_str and "https://" not in page_str:
+        return page_str
+
+    # Try modern URL format: /pages/123456/Title
+    import re
+    match = re.search(r'/pages/(\d+)', page_str)
+    if match:
+        extracted = match.group(1)
+        logger.info(f"Auto-extracted page_id={extracted} from URL")
+        return extracted
+
+    # Try legacy format: ?pageId=123456
+    match = re.search(r'[?&]pageId=(\d+)', page_str)
+    if match:
+        extracted = match.group(1)
+        logger.info(f"Auto-extracted page_id={extracted} from URL")
+        return extracted
+
+    # Couldn't parse - return as-is and let API handle it
+    logger.warning(f"Could not extract page_id from URL: {page_str}")
+    return page_str
+
+
 @confluence_mcp.tool(
     tags={"confluence", "read"},
     annotations={"title": "Search Content", "readOnlyHint": True},
@@ -171,21 +214,8 @@ async def get_page(
     confluence_fetcher = await get_confluence_fetcher(ctx)
     page_object = None
 
-    # Auto-parse URLs: extract page_id and space_key if page_id looks like a URL
-    if page_id and isinstance(page_id, str) and ("http://" in page_id or "https://" in page_id):
-        # URL format: https://site.atlassian.net/wiki/spaces/SPACE/pages/123456/Title
-        import re
-        url_match = re.search(r'/pages/(\d+)', str(page_id))
-        if url_match:
-            extracted_id = url_match.group(1)
-            logger.info(f"Auto-extracted page_id={extracted_id} from URL: {page_id}")
-            page_id = extracted_id
-            # Also try to extract space_key if not provided
-            if not space_key:
-                space_match = re.search(r'/spaces/([^/]+)/', str(page_id))
-                if space_match:
-                    space_key = space_match.group(1)
-                    logger.info(f"Auto-extracted space_key={space_key} from URL")
+    # Auto-parse URLs to extract page_id
+    page_id = parse_page_id_from_url(page_id)
 
     if page_id:
         if title or space_key:
@@ -358,6 +388,10 @@ async def get_page_ancestors(
         JSON string representing a list of ancestor pages (immediate parent first, root last).
     """
     confluence_fetcher = await get_confluence_fetcher(ctx)
+
+    # Auto-parse URLs to extract page_id
+    page_id = parse_page_id_from_url(page_id)
+
     ancestors = confluence_fetcher.get_page_ancestors(page_id)
     formatted_ancestors = [ancestor.to_simplified_dict() for ancestor in ancestors]
     return json.dumps(formatted_ancestors, indent=2, ensure_ascii=False)
