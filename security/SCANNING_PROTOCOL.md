@@ -14,36 +14,66 @@ We use a **layered approach** with multiple tools to ensure comprehensive covera
 
 **Purpose**: Container image and filesystem vulnerability scanning
 **Scope**: Python dependencies (uv.lock), Docker images, configuration files
+**Output**: `security/scans/trivy-YYYYMMDD.json`
 
 ```bash
 # Scan dependencies for HIGH/CRITICAL vulnerabilities
 trivy fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL .
 
 # Detailed scan with all severities
-trivy fs --scanners vuln --severity LOW,MEDIUM,HIGH,CRITICAL uv.lock
+trivy fs --scanners vuln --severity LOW,MEDIUM,HIGH,CRITICAL --format json uv.lock \
+  > security/scans/trivy-$(date +%Y%m%d).json
 ```
 
 **Why Primary**: Fast, comprehensive, regularly updated CVE database
 
-### 2. Syft + Grype (Validation)
+### 2. pip-audit (Python-Specific)
+
+**Purpose**: Python dependency vulnerability scanning using PyPI advisory database
+**Scope**: Python packages from requirements/pyproject.toml
+**Output**: `security/scans/pip-audit-YYYYMMDD.json`
+
+```bash
+# Run via uvx (no installation needed)
+uvx pip-audit --format json --output security/scans/pip-audit-$(date +%Y%m%d).json
+
+# Human-readable output
+uvx pip-audit --desc
+```
+
+**Why Python-Specific**:
+- Uses PyPI's advisory database (different source than Trivy)
+- Understands Python packaging nuances (wheels, sdists, extras)
+- Can detect malicious packages
+- Suggests fix versions
+
+**When to use**:
+- Primary Python vulnerability check
+- Cross-reference with Trivy findings
+- Validate transitive dependency risks
+
+### 3. Syft + Grype (Validation)
 
 **Purpose**: Cross-validation and SBOM generation
 **Scope**: Python packages, transitive dependencies
+**Output**: `security/scans/sbom-YYYYMMDD.json`, `security/scans/grype-YYYYMMDD.json`
 
 ```bash
 # Generate SBOM
 syft packages . -o json > security/scans/sbom-$(date +%Y%m%d).json
 
 # Scan SBOM with Grype
-grype sbom:security/scans/sbom-*.json --only-fixed
+grype sbom:security/scans/sbom-$(date +%Y%m%d).json --only-fixed \
+  -o json > security/scans/grype-$(date +%Y%m%d).json
 ```
 
 **Why Validation**: Different vulnerability databases may catch different issues
 
-### 3. Dependabot (GitHub Integration)
+### 4. Dependabot (GitHub Integration)
 
 **Purpose**: Automated dependency monitoring
 **Scope**: Python dependencies via GitHub security advisories
+**Output**: GitHub web UI, API responses
 
 ```bash
 # Check Dependabot alerts via GitHub CLI
@@ -63,14 +93,32 @@ gh api repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)/dependabot/a
 # Quick scan for HIGH/CRITICAL
 trivy fs --scanners vuln --severity HIGH,CRITICAL uv.lock
 
-# Full scan with context
+# Full scan with JSON output
 trivy fs --scanners vuln --severity LOW,MEDIUM,HIGH,CRITICAL --format json uv.lock \
   > security/scans/trivy-$(date +%Y%m%d).json
 ```
 
 **Record findings**: Note CVE IDs, packages, and severity levels
+**Output location**: `security/scans/trivy-YYYYMMDD.json`
 
-### Step 2: Cross-Validate with Syft/Grype
+### Step 2: Run pip-audit (Python-Specific)
+
+```bash
+# Scan with JSON output
+uvx pip-audit --format json --output security/scans/pip-audit-$(date +%Y%m%d).json
+
+# Human-readable scan with descriptions
+uvx pip-audit --desc
+```
+
+**Why run both Trivy and pip-audit**:
+- Different vulnerability databases (Trivy: general CVE, pip-audit: PyPI advisory)
+- pip-audit may catch Python-specific issues Trivy misses
+- Provides suggested fix versions
+
+**Output location**: `security/scans/pip-audit-YYYYMMDD.json`
+
+### Step 3: Cross-Validate with Syft/Grype
 
 ```bash
 # Generate fresh SBOM
@@ -81,19 +129,44 @@ grype sbom:security/scans/sbom-$(date +%Y%m%d).json --only-fixed \
   -o json > security/scans/grype-$(date +%Y%m%d).json
 ```
 
-**Compare**: Check if Grype identifies same vulnerabilities as Trivy
+**Compare**: Check if Grype identifies same vulnerabilities as Trivy/pip-audit
+**Output locations**:
+- `security/scans/sbom-YYYYMMDD.json`
+- `security/scans/grype-YYYYMMDD.json`
 
-### Step 3: Check Dependabot Alerts
+### Step 4: Check Dependabot Alerts
 
 ```bash
-# List open alerts
+# List open alerts with key details
 gh api repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)/dependabot/alerts \
   --jq '.[] | select(.state == "open") | {number, package: .dependency.package.name, severity: .security_advisory.severity, cve: .security_advisory.cve_id}'
 ```
 
-**Correlate**: Match Dependabot alerts with Trivy/Grype findings
+**Correlate**: Match Dependabot alerts with Trivy/pip-audit/Grype findings
+**Output location**: GitHub web UI, no file output
 
-### Step 4: Triage and Document
+### Step 5: Consolidate Findings
+
+Create a consolidated view of all unique vulnerabilities:
+
+```bash
+# Extract CVEs from each tool
+jq -r '.Results[].Vulnerabilities[]?.VulnerabilityID' security/scans/trivy-*.json | sort -u > /tmp/trivy-cves.txt
+jq -r '.[].vulnerabilities[]?.id' security/scans/pip-audit-*.json | sort -u > /tmp/pip-audit-cves.txt
+jq -r '.matches[]?.vulnerability.id' security/scans/grype-*.json | sort -u > /tmp/grype-cves.txt
+
+# Find unique and overlapping CVEs
+comm -12 /tmp/trivy-cves.txt /tmp/pip-audit-cves.txt  # Both found
+comm -23 /tmp/trivy-cves.txt /tmp/pip-audit-cves.txt  # Trivy only
+comm -13 /tmp/trivy-cves.txt /tmp/pip-audit-cves.txt  # pip-audit only
+```
+
+**Track findings by tool**:
+- If all tools agree: High confidence finding
+- If only one tool reports: May be false positive, investigate further
+- If pip-audit finds but Trivy doesn't: Python-specific issue, trust pip-audit
+
+### Step 6: Triage and Document
 
 For each unique vulnerability:
 
@@ -277,6 +350,33 @@ Add entry to `security/README.md` under "Dismissed Alerts"
 ---
 
 ## Tool Installation
+
+### uv (Required for uvx)
+
+```bash
+# Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Verify installation
+uv --version
+```
+
+**Note**: `uvx` is included with `uv` and requires no separate installation.
+
+### pip-audit (via uvx - No Installation Needed)
+
+```bash
+# pip-audit runs via uvx automatically
+uvx pip-audit --version
+
+# No pip install needed - uvx handles it
+```
+
+**Why uvx**:
+- No global installation required
+- Isolated execution environment
+- Always uses latest version
+- No dependency conflicts
 
 ### Trivy
 

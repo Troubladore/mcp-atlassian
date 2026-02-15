@@ -25,22 +25,30 @@ security/
 ### Running a Security Scan
 
 ```bash
-# 1. Quick scan for HIGH/CRITICAL issues
+# 1. Trivy - Quick scan for HIGH/CRITICAL issues
 trivy fs --scanners vuln --severity HIGH,CRITICAL uv.lock
 
-# 2. Full vulnerability assessment
-trivy fs --scanners vuln --severity LOW,MEDIUM,HIGH,CRITICAL uv.lock
+# 2. pip-audit - Python-specific vulnerability check
+uvx pip-audit --desc
 
-# 3. Cross-validate with Syft/Grype
+# 3. Trivy - Full vulnerability assessment with JSON output
+trivy fs --scanners vuln --severity LOW,MEDIUM,HIGH,CRITICAL --format json uv.lock \
+  > security/scans/trivy-$(date +%Y%m%d).json
+
+# 4. pip-audit - JSON output for tracking
+uvx pip-audit --format json --output security/scans/pip-audit-$(date +%Y%m%d).json
+
+# 5. Cross-validate with Syft/Grype
 syft packages . -o json > security/scans/sbom-$(date +%Y%m%d).json
-grype sbom:security/scans/sbom-*.json --only-fixed
+grype sbom:security/scans/sbom-$(date +%Y%m%d).json --only-fixed \
+  -o json > security/scans/grype-$(date +%Y%m%d).json
 
-# 4. Check Dependabot alerts
+# 6. Check Dependabot alerts
 gh api repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)/dependabot/alerts \
   --jq '.[] | select(.state == "open")'
 ```
 
-See `SCANNING_PROTOCOL.md` for complete workflow.
+See `SCANNING_PROTOCOL.md` for complete workflow and tool comparison.
 
 ---
 
@@ -50,15 +58,41 @@ See `SCANNING_PROTOCOL.md` for complete workflow.
 
 **Last Scan**: 2026-02-15
 
-| CVE | Package | Severity | Status | Assessment |
-|-----|---------|----------|--------|------------|
-| *No open vulnerabilities* | - | - | - | - |
+| CVE | Package | Severity | Detected By | Status | Assessment |
+|-----|---------|----------|-------------|--------|------------|
+| *No open vulnerabilities* | - | - | - | - | - |
+
+**Tool Detection Legend**:
+- 🔍 **T** = Trivy
+- 🐍 **P** = pip-audit
+- 📦 **G** = Grype
+- 🤖 **D** = Dependabot
 
 ### Dismissed Alerts
 
-| CVE | Package | Severity | Reason | Date | Assessment |
-|-----|---------|----------|--------|------|------------|
-| CVE-2025-69872 | diskcache v5.6.3 | MEDIUM | Not exploitable | 2026-02-15 | [CVE-2025-69872-diskcache.md](assessments/CVE-2025-69872-diskcache.md) |
+| CVE | Package | Severity | Detected By | Reason | Date | Assessment |
+|-----|---------|----------|-------------|--------|------|------------|
+| CVE-2025-69872 | diskcache v5.6.3 | MEDIUM | T, P, G, D | Not exploitable | 2026-02-15 | [CVE-2025-69872-diskcache.md](assessments/CVE-2025-69872-diskcache.md) |
+
+**Why track detection source**:
+- **All tools agree** (T+P+G+D): High confidence finding
+- **Trivy + pip-audit** (T+P): Strong finding (primary tools agree)
+- **pip-audit only** (P): Python-specific, trust PyPI advisory
+- **Trivy only** (T): General CVE, may not be Python-specific
+- **Dependabot only** (D): GitHub advisory, cross-check with tools
+
+### Scan Result Files
+
+All scan results are stored in `security/scans/` (gitignored):
+
+| Tool | Output File | Purpose |
+|------|-------------|---------|
+| Trivy | `trivy-YYYYMMDD.json` | Primary vulnerability scan |
+| pip-audit | `pip-audit-YYYYMMDD.json` | Python-specific vulnerabilities |
+| Syft | `sbom-YYYYMMDD.json` | Software Bill of Materials |
+| Grype | `grype-YYYYMMDD.json` | SBOM-based vulnerability scan |
+
+**Regenerate scans**: Run commands in "Quick Start" section above
 
 ---
 
@@ -249,12 +283,15 @@ Even when vulnerabilities exist, these controls reduce effective risk:
 
 On the 1st of each month:
 
-- [ ] Run full Trivy scan: `trivy fs --scanners vuln --severity LOW,MEDIUM,HIGH,CRITICAL uv.lock`
-- [ ] Cross-validate with Grype: `grype sbom:security/scans/sbom-*.json`
-- [ ] Check Dependabot alerts: `gh api repos/.../dependabot/alerts`
+- [ ] Run full Trivy scan: `trivy fs --scanners vuln --severity LOW,MEDIUM,HIGH,CRITICAL --format json uv.lock > security/scans/trivy-$(date +%Y%m%d).json`
+- [ ] Run pip-audit scan: `uvx pip-audit --format json --output security/scans/pip-audit-$(date +%Y%m%d).json`
+- [ ] Generate SBOM: `syft packages . -o json > security/scans/sbom-$(date +%Y%m%d).json`
+- [ ] Cross-validate with Grype: `grype sbom:security/scans/sbom-$(date +%Y%m%d).json --only-fixed -o json > security/scans/grype-$(date +%Y%m%d).json`
+- [ ] Check Dependabot alerts: `gh api repos/.../dependabot/alerts --jq '.[] | select(.state == "open")'`
+- [ ] Consolidate findings: Compare CVEs across all tools (see SCANNING_PROTOCOL.md Step 5)
 - [ ] Review all P3/P4 items: Check if patches are now available
-- [ ] Update this README with current status
-- [ ] Generate SBOM for archive: `syft packages . -o json > security/scans/sbom-$(date +%Y%m).json`
+- [ ] Update this README with current status and "Detected By" columns
+- [ ] Archive monthly scans: Keep most recent 3 months, delete older scans
 
 ---
 
