@@ -294,14 +294,14 @@ class PagesMixin(ConfluenceClient):
     def _get_page_width(self, page_id: str) -> str | None:
         """Get the page layout width from content properties.
 
-        The page width (full-width vs fixed-width) is stored as a content property
+        The page width (full-width, max, or default) is stored as a content property
         with key 'content-appearance-published' or 'content-appearance-draft'.
 
         Args:
             page_id: The ID of the page
 
         Returns:
-            The width setting if set ('full-width' or 'fixed-width'), None otherwise
+            The width setting if set ('full-width', 'max', or 'default'), None otherwise
         """
         try:
             # For token/basic auth, use v1 API via atlassian library
@@ -335,16 +335,16 @@ class PagesMixin(ConfluenceClient):
 
         Args:
             page_id: The ID of the page
-            width: The width to set ('full-width', 'fixed-width', or 'default'), or None to remove
+            width: The width to set ('full-width', 'max', or 'default'), or None to remove
 
         Returns:
             True if the operation succeeded, False otherwise
         """
         try:
             # Validate width value
-            if width is not None and width not in ["full-width", "fixed-width", "default"]:
+            if width is not None and width not in ["full-width", "max", "default"]:
                 logger.warning(
-                    f"Invalid page width '{width}'. Must be 'full-width', 'fixed-width', or 'default'"
+                    f"Invalid page width '{width}'. Must be 'full-width', 'max', or 'default'"
                 )
                 return False
 
@@ -533,7 +533,7 @@ class PagesMixin(ConfluenceClient):
             enable_heading_anchors: Whether to enable automatic heading anchor generation (default: False, keyword-only)
             content_representation: Content format when is_markdown=False ('wiki' or 'storage', keyword-only)
             emoji: Optional emoji character for the page title icon (keyword-only)
-            page_width: Optional page layout width ('full-width', 'fixed-width', or 'default', keyword-only)
+            page_width: Optional page layout width ('full-width', 'max', or 'default', keyword-only)
 
         Returns:
             ConfluencePage model containing the new page's data
@@ -630,7 +630,7 @@ class PagesMixin(ConfluenceClient):
             enable_heading_anchors: Whether to enable automatic heading anchor generation (default: False, keyword-only)
             content_representation: Content format when is_markdown=False ('wiki' or 'storage', keyword-only)
             emoji: Optional emoji character for the page title icon (keyword-only). Pass empty string to remove emoji.
-            page_width: Optional page layout width ('full-width', 'fixed-width', or 'default', keyword-only). Pass empty string to reset to default.
+            page_width: Optional page layout width ('full-width', 'max', or 'default', keyword-only). Pass empty string to reset to default.
 
         Returns:
             ConfluencePage model containing the updated page's data

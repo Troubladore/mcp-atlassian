@@ -1654,12 +1654,12 @@ class TestPageWidth:
             assert result == "full-width"
 
     def test_get_page_width_fixed_width(self, pages_mixin):
-        """Test getting fixed-width page layout."""
+        """Test getting max page layout."""
         page_id = "page_fixed_width_123"
 
         mock_properties = {
             "results": [
-                {"key": "content-appearance-draft", "value": "fixed-width"}
+                {"key": "content-appearance-draft", "value": "max"}
             ]
         }
 
@@ -1669,7 +1669,7 @@ class TestPageWidth:
             result = pages_mixin._get_page_width(page_id)
 
             mock_get.assert_called_once_with(page_id)
-            assert result == "fixed-width"
+            assert result == "max"
 
     def test_get_page_width_not_set(self, pages_mixin):
         """Test getting page width when no property is set."""
@@ -1700,15 +1700,15 @@ class TestPageWidth:
             assert result is True
 
     def test_set_page_width_fixed_width(self, pages_mixin):
-        """Test setting page to fixed-width."""
+        """Test setting page to max."""
         page_id = "page_set_fixed_123"
 
         with patch.object(pages_mixin.confluence, "set_page_property") as mock_set:
-            result = pages_mixin._set_page_width(page_id, "fixed-width")
+            result = pages_mixin._set_page_width(page_id, "max")
 
             assert mock_set.call_count == 2
             calls = mock_set.call_args_list
-            assert calls[0][0][1]["value"] == "fixed-width"
+            assert calls[0][0][1]["value"] == "max"
             assert result is True
 
     def test_set_page_width_default(self, pages_mixin):

@@ -96,7 +96,7 @@ class ConfluencePage(ApiModel, TimestampMixin):
     attachments: list[ConfluenceAttachment] = Field(default_factory=list)
     url: str | None = None
     emoji: str | None = None  # Page title emoji (icon shown in navigation)
-    page_width: str | None = None  # Page layout width ('full-width' or 'fixed-width')
+    page_width: str | None = None  # Page layout width ('full-width', 'max', or 'default')
 
     @property
     def page_content(self) -> str:

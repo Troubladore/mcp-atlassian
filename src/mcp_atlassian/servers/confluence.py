@@ -478,7 +478,7 @@ async def create_page(
     page_width: Annotated[
         str | None,
         Field(
-            description="(Optional) Page width (maps to UI 'Adjust width' menu): 'default' = Narrow, 'full-width' = Wide, 'fixed-width' = Max. Most pages use 'default'.",
+            description="(Optional) Page width (UI 'Adjust width'): 'default' = Narrow, 'full-width' = Wide, 'max' = Max. Use 'default' for standard pages.",
             default=None,
         ),
     ] = None,
@@ -494,7 +494,7 @@ async def create_page(
         content_format: The format of the content ('markdown', 'wiki', or 'storage').
         enable_heading_anchors: Whether to enable heading anchors (markdown only).
         emoji: Optional page title emoji (icon shown in navigation).
-        page_width: Optional page layout ('full-width', 'fixed-width', or 'default').
+        page_width: Optional page layout ('full-width', 'max', or 'default').
 
     Returns:
         JSON string representing the created page object.
@@ -589,7 +589,7 @@ async def update_page(
     page_width: Annotated[
         str | None,
         Field(
-            description="(Optional) Page width (maps to UI 'Adjust width' menu): 'default' = Narrow, 'full-width' = Wide, 'fixed-width' = Max. Most pages use 'default'.",
+            description="(Optional) Page width (UI 'Adjust width'): 'default' = Narrow, 'full-width' = Wide, 'max' = Max. Use 'default' for standard pages.",
             default=None,
         ),
     ] = None,
@@ -607,7 +607,7 @@ async def update_page(
         content_format: The format of the content ('markdown', 'wiki', or 'storage').
         enable_heading_anchors: Whether to enable heading anchors (markdown only).
         emoji: Optional page title emoji (icon shown in navigation).
-        page_width: Optional page layout ('full-width', 'fixed-width', or 'default').
+        page_width: Optional page layout ('full-width', 'max', or 'default').
 
     Returns:
         JSON string representing the updated page object.
