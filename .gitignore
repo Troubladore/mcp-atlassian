@@ -75,3 +75,6 @@ playground/
 
 # Claude
 .claude/
+
+# Security scan results (large JSON files, regenerate as needed)
+security/scans/
