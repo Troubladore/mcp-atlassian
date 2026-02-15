@@ -1,0 +1,92 @@
+{
+  "manifest_version": "0.3",
+  "name": "eruditis-atlassian",
+  "display_name": "Eruditis Atlassian (Confluence + Jira)",
+  "version": "1.0.0",
+  "description": "Connect Claude to Eruditis Confluence and Jira via sooperset/mcp-atlassian running in a sandboxed Docker container. Read-only by default.",
+  "long_description": "This extension runs the mcp-atlassian MCP server inside a Docker container with no filesystem mounts and no host network access. Your API token is stored encrypted in your OS keychain. By default, only read operations and page create/update are enabled. Destructive operations (delete) are never exposed.",
+  "author": {
+    "name": "Eric @ Eruditis",
+    "url": "https://eruditis.com"
+  },
+  "homepage": "https://github.com/sooperset/mcp-atlassian",
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.js"],
+      "env": {
+        "ATLASSIAN_URL": "${user_config.atlassian_url}",
+        "ATLASSIAN_EMAIL": "${user_config.atlassian_email}",
+        "ATLASSIAN_API_TOKEN": "${user_config.atlassian_api_token}",
+        "ENABLE_WRITE_TOOLS": "${user_config.enable_write_tools}",
+        "CONFLUENCE_SPACES_FILTER": "${user_config.confluence_spaces_filter}",
+        "JIRA_PROJECTS_FILTER": "${user_config.jira_projects_filter}"
+      }
+    }
+  },
+  "tools": [
+    { "name": "confluence_search", "description": "Search Confluence content using CQL" },
+    { "name": "confluence_get_page", "description": "Get content of a specific Confluence page" },
+    { "name": "confluence_get_page_children", "description": "Get child pages of a Confluence page" },
+    { "name": "confluence_get_comments", "description": "Get comments on a Confluence page" },
+    { "name": "confluence_get_labels", "description": "Get labels on a Confluence page" },
+    { "name": "confluence_create_page", "description": "Create a new Confluence page" },
+    { "name": "confluence_update_page", "description": "Update an existing Confluence page" },
+    { "name": "confluence_add_label", "description": "Add a label to a Confluence page" },
+    { "name": "confluence_add_comment", "description": "Add a comment to a Confluence page" },
+    { "name": "jira_search", "description": "Search Jira issues using JQL" },
+    { "name": "jira_get_issue", "description": "Get details of a specific Jira issue" },
+    { "name": "jira_get_all_projects", "description": "List all Jira projects" },
+    { "name": "jira_get_project_issues", "description": "Get issues for a Jira project" },
+    { "name": "jira_get_transitions", "description": "Get available transitions for a Jira issue" },
+    { "name": "jira_create_issue", "description": "Create a new Jira issue" },
+    { "name": "jira_update_issue", "description": "Update an existing Jira issue" },
+    { "name": "jira_add_comment", "description": "Add a comment to a Jira issue" },
+    { "name": "jira_transition_issue", "description": "Transition a Jira issue to a new status" }
+  ],
+  "user_config": {
+    "atlassian_url": {
+      "type": "string",
+      "title": "Atlassian Site URL",
+      "description": "Your Atlassian Cloud URL, e.g. https://eruditis.atlassian.net (no trailing slash)",
+      "required": true,
+      "default": "https://eruditis.atlassian.net"
+    },
+    "atlassian_email": {
+      "type": "string",
+      "title": "Atlassian Email",
+      "description": "The email address you use to log into Atlassian (your Gmail)",
+      "required": true
+    },
+    "atlassian_api_token": {
+      "type": "string",
+      "title": "Atlassian API Token",
+      "description": "Generate at https://id.atlassian.com/manage-profile/security/api-tokens — click 'Create API token', copy it, paste here",
+      "sensitive": true,
+      "required": true
+    },
+    "enable_write_tools": {
+      "type": "string",
+      "title": "Enable Write Operations",
+      "description": "Set to 'true' to enable create/update operations. Leave empty or 'false' for read-only mode.",
+      "required": false,
+      "default": "false"
+    },
+    "confluence_spaces_filter": {
+      "type": "string",
+      "title": "Confluence Spaces Filter",
+      "description": "Comma-separated space keys to restrict access (e.g. 'DEV,TEAM,DOC'). Leave empty for all spaces.",
+      "required": false,
+      "default": ""
+    },
+    "jira_projects_filter": {
+      "type": "string",
+      "title": "Jira Projects Filter",
+      "description": "Comma-separated project keys to restrict access (e.g. 'PROJ,DEV'). Leave empty for all projects.",
+      "required": false,
+      "default": ""
+    }
+  }
+}
