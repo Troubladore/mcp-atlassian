@@ -122,48 +122,35 @@ async def get_page(
     page_id: Annotated[
         str | int | None,
         Field(
-            description=(
-                "Confluence page ID (numeric ID, can be found in the page URL). "
-                "For example, in the URL 'https://example.atlassian.net/wiki/spaces/TEAM/pages/123456789/Page+Title', "
-                "the page ID is '123456789'. "
-                "Provide this OR both 'title' and 'space_key'. If page_id is provided, title and space_key will be ignored."
-            ),
+            description="Page ID, URL, or use title+space_key",
             default=None,
         ),
     ] = None,
     title: Annotated[
         str | None,
         Field(
-            description=(
-                "The exact title of the Confluence page. Use this with 'space_key' if 'page_id' is not known."
-            ),
+            description="Page title (with space_key)",
             default=None,
         ),
     ] = None,
     space_key: Annotated[
         str | None,
         Field(
-            description=(
-                "The key of the Confluence space where the page resides (e.g., 'DEV', 'TEAM'). Required if using 'title'."
-            ),
+            description="Space key (with title)",
             default=None,
         ),
     ] = None,
     include_metadata: Annotated[
         bool,
         Field(
-            description="Whether to include page metadata such as creation date, last update, version, and labels.",
+            description="Include metadata",
             default=True,
         ),
     ] = True,
     convert_to_markdown: Annotated[
         bool,
         Field(
-            description=(
-                "Whether to convert page to markdown (true) or keep it in raw HTML format (false). "
-                "Raw HTML can reveal macros (like dates) not visible in markdown, but CAUTION: "
-                "using HTML significantly increases token usage in AI responses."
-            ),
+            description="Convert to markdown (false=raw HTML)",
             default=True,
         ),
     ] = True,
@@ -183,6 +170,22 @@ async def get_page(
     """
     confluence_fetcher = await get_confluence_fetcher(ctx)
     page_object = None
+
+    # Auto-parse URLs: extract page_id and space_key if page_id looks like a URL
+    if page_id and isinstance(page_id, str) and ("http://" in page_id or "https://" in page_id):
+        # URL format: https://site.atlassian.net/wiki/spaces/SPACE/pages/123456/Title
+        import re
+        url_match = re.search(r'/pages/(\d+)', str(page_id))
+        if url_match:
+            extracted_id = url_match.group(1)
+            logger.info(f"Auto-extracted page_id={extracted_id} from URL: {page_id}")
+            page_id = extracted_id
+            # Also try to extract space_key if not provided
+            if not space_key:
+                space_match = re.search(r'/spaces/([^/]+)/', str(page_id))
+                if space_match:
+                    space_key = space_match.group(1)
+                    logger.info(f"Auto-extracted space_key={space_key} from URL")
 
     if page_id:
         if title or space_key:
@@ -241,21 +244,19 @@ async def get_page_children(
     ctx: Context,
     parent_id: Annotated[
         str,
-        Field(
-            description="The ID of the parent page whose children you want to retrieve"
-        ),
+        Field(description="Parent page ID"),
     ],
     expand: Annotated[
         str,
         Field(
-            description="Fields to expand in the response (e.g., 'version', 'body.storage')",
+            description="Fields to expand (version, body.storage)",
             default="version",
         ),
     ] = "version",
     limit: Annotated[
         int,
         Field(
-            description="Maximum number of child items to return (1-50)",
+            description="Max children to return",
             default=25,
             ge=1,
             le=50,
@@ -264,25 +265,25 @@ async def get_page_children(
     include_content: Annotated[
         bool,
         Field(
-            description="Whether to include the page content in the response",
+            description="Include page content",
             default=False,
         ),
     ] = False,
     convert_to_markdown: Annotated[
         bool,
         Field(
-            description="Whether to convert page content to markdown (true) or keep it in raw HTML format (false). Only relevant if include_content is true.",
+            description="Convert to markdown",
             default=True,
         ),
     ] = True,
     start: Annotated[
         int,
-        Field(description="Starting index for pagination (0-based)", default=0, ge=0),
+        Field(description="Pagination start index", default=0, ge=0),
     ] = 0,
     include_folders: Annotated[
         bool,
         Field(
-            description="Whether to include child folders in addition to child pages",
+            description="Include child folders",
             default=True,
         ),
     ] = True,
@@ -341,13 +342,7 @@ async def get_page_ancestors(
     ctx: Context,
     page_id: Annotated[
         str,
-        Field(
-            description=(
-                "Confluence page ID (numeric ID, can be parsed from URL, "
-                "e.g. from 'https://example.atlassian.net/wiki/spaces/TEAM/pages/123456789/Page+Title' "
-                "-> '123456789')"
-            )
-        ),
+        Field(description="Page ID or URL"),
     ],
 ) -> str:
     """Get ancestor pages (breadcrumb trail) for a specific Confluence page.
@@ -376,17 +371,12 @@ async def get_space_page_tree(
     ctx: Context,
     space_key: Annotated[
         str,
-        Field(
-            description=(
-                "Space key (short identifier for the space, e.g., 'TEAM' from "
-                "'https://example.atlassian.net/wiki/spaces/TEAM/overview')"
-            )
-        ),
+        Field(description="Space key"),
     ],
     limit: Annotated[
         int,
         Field(
-            description="Maximum number of pages to fetch (default: 100, increase if needed)",
+            description="Max pages to fetch",
             default=100,
             ge=1,
             le=1000,
@@ -434,7 +424,7 @@ async def list_spaces(
     start: Annotated[
         int,
         Field(
-            description="Starting index for pagination (0-based, default: 0)",
+            description="Pagination start",
             default=0,
             ge=0,
         ),
@@ -467,33 +457,15 @@ async def move_page_position(
     ctx: Context,
     page_id: Annotated[
         str,
-        Field(
-            description=(
-                "Confluence page ID to move (numeric ID, can be parsed from URL, "
-                "e.g. from 'https://example.atlassian.net/wiki/spaces/TEAM/pages/123456789/Page+Title' "
-                "-> '123456789')"
-            )
-        ),
+        Field(description="Page ID to move"),
     ],
     position: Annotated[
         str,
-        Field(
-            description=(
-                "Position relative to target page:\n"
-                "- 'before': Place as sibling immediately before the target page\n"
-                "- 'after': Place as sibling immediately after the target page\n"
-                "- 'append': Place as child of the target page"
-            )
-        ),
+        Field(description="Position: before/after/append"),
     ],
     target_id: Annotated[
         str,
-        Field(
-            description=(
-                "Target page ID for positioning. The page specified by page_id "
-                "will be moved relative to this target."
-            )
-        ),
+        Field(description="Target page ID"),
     ],
 ) -> str:
     """Move a Confluence page to a specific position relative to another page.
