@@ -132,6 +132,40 @@ function dockerExec(args, { ignoreErrors = false, timeout = 120000 } = {}) {
 }
 
 /**
+ * Clean up old versions of our Docker images to prevent accumulation
+ */
+function cleanupOldImages() {
+  try {
+    // Remove old mcp-atlassian images (keep only current version)
+    log("Cleaning up old Docker images...");
+
+    // List all troubladore/mcp-atlassian images
+    const images = execSync(
+      `docker images ghcr.io/troubladore/mcp-atlassian --format "{{.Repository}}:{{.Tag}}"`,
+      { encoding: "utf-8", timeout: 10000 }
+    ).trim().split("\n").filter(Boolean);
+
+    // Remove any that aren't the current version
+    const currentImage = IMAGE;
+    for (const img of images) {
+      if (img !== currentImage && img.startsWith("ghcr.io/troubladore/mcp-atlassian:")) {
+        log(`Removing old image: ${img}`);
+        execSync(`docker rmi ${img}`, { stdio: "ignore", timeout: 30000 });
+      }
+    }
+
+    // Clean up dangling images (orphaned layers)
+    log("Removing dangling images...");
+    execSync(`docker image prune -f`, { stdio: "ignore", timeout: 30000 });
+
+    log("Cleanup complete.");
+  } catch (err) {
+    // Don't fail startup if cleanup fails
+    log(`Warning: Image cleanup failed (non-fatal): ${err.message}`);
+  }
+}
+
+/**
  * Pull a Docker image with progress feedback
  */
 function pullImage(image) {
@@ -331,6 +365,9 @@ if (!pullImage(IMAGE)) {
   log("Failed to pull Docker image. Please check your internet connection and Docker installation.");
   process.exit(1);
 }
+
+// Clean up old image versions to prevent accumulation
+cleanupOldImages();
 
 // 2. Ensure proxy container is running (network egress filtering)
 if (!ensureProxyRunning()) {
