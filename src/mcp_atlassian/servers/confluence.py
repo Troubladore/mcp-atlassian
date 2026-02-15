@@ -478,7 +478,7 @@ async def create_page(
     page_width: Annotated[
         str | None,
         Field(
-            description="(Optional) Page layout width. Options: 'full-width' (spans entire browser width) or 'fixed-width' (centered with fixed max width).",
+            description="(Optional) ONLY 'full-width' OR 'fixed-width'. Use 'full-width' for wide pages (spans browser). Use 'fixed-width' for narrow centered pages. Omit for default.",
             default=None,
         ),
     ] = None,
@@ -494,7 +494,7 @@ async def create_page(
         content_format: The format of the content ('markdown', 'wiki', or 'storage').
         enable_heading_anchors: Whether to enable heading anchors (markdown only).
         emoji: Optional page title emoji (icon shown in navigation).
-        page_width: Optional page layout width ('full-width' or 'fixed-width').
+        page_width: Optional page layout. Use 'full-width' for wide pages, 'fixed-width' for narrow/centered pages.
 
     Returns:
         JSON string representing the created page object.
@@ -589,7 +589,7 @@ async def update_page(
     page_width: Annotated[
         str | None,
         Field(
-            description="(Optional) Page layout width. Options: 'full-width' (spans entire browser width) or 'fixed-width' (centered with fixed max width). Set to null/None to keep current setting, empty string to reset to default.",
+            description="(Optional) Page layout: 'full-width' (wide) or 'fixed-width' (narrow/centered). Omit to keep current. Empty string to reset.",
             default=None,
         ),
     ] = None,
@@ -607,7 +607,7 @@ async def update_page(
         content_format: The format of the content ('markdown', 'wiki', or 'storage').
         enable_heading_anchors: Whether to enable heading anchors (markdown only).
         emoji: Optional page title emoji (icon shown in navigation).
-        page_width: Optional page layout width ('full-width' or 'fixed-width').
+        page_width: Optional page layout. Use 'full-width' for wide pages, 'fixed-width' for narrow/centered pages.
 
     Returns:
         JSON string representing the updated page object.
