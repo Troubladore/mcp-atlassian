@@ -152,17 +152,16 @@ function cleanupOldImages() {
     }
 
     // Remove old proxy images that aren't the current tag
-    // (there should only be one :latest, but stale <none> tags can accumulate)
+    // (there should only be one :latest, but stale tags can accumulate)
     const proxyImages = execSync(
-      `docker images eruditis/atlassian-proxy --format "{{.ID}} {{.Repository}}:{{.Tag}}"`,
+      `docker images eruditis/atlassian-proxy --format "{{.Repository}}:{{.Tag}}"`,
       { encoding: "utf-8", timeout: 10000 }
     ).trim().split("\n").filter(Boolean);
 
-    for (const line of proxyImages) {
-      const [id, name] = [line.split(" ")[0], line.split(" ").slice(1).join(" ")];
-      if (name !== PROXY_IMAGE) {
-        log(`  Removing old proxy image: ${name} (${id})`);
-        execSync(`docker rmi ${id}`, { stdio: "ignore", timeout: 30000 });
+    for (const img of proxyImages) {
+      if (img !== PROXY_IMAGE && img !== "<none>:<none>") {
+        log(`  Removing old proxy image: ${img}`);
+        execSync(`docker rmi ${img}`, { stdio: "ignore", timeout: 30000 });
       }
     }
 
