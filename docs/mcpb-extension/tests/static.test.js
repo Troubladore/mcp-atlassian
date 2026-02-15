@@ -412,6 +412,73 @@ describe("server/index.js", () => {
     );
   });
 
+  it("never exposes delete operations in ENABLED_TOOLS whitelist", () => {
+    // These operations must NEVER appear in READ_TOOLS or WRITE_TOOLS
+    // They should only be listed in the "NEVER exposed" comment
+    const EXPECTED_EXCLUSIONS = [
+      "jira_delete_issue",
+      "confluence_delete_page",
+      "jira_batch_create_issues",
+    ];
+
+    const readToolsMatch = serverJs.match(/const READ_TOOLS = \[([\s\S]*?)\];/);
+    const writeToolsMatch = serverJs.match(/const WRITE_TOOLS = \[([\s\S]*?)\];/);
+
+    const readTools = (readToolsMatch[1].match(/"([^"]+)"/g) || [])
+      .map((s) => s.replace(/"/g, ""));
+    const writeTools = (writeToolsMatch[1].match(/"([^"]+)"/g) || [])
+      .map((s) => s.replace(/"/g, ""));
+
+    const enabledTools = [...readTools, ...writeTools];
+
+    // Verify none of the excluded tools appear in the whitelist
+    const foundExclusions = enabledTools.filter((t) =>
+      EXPECTED_EXCLUSIONS.includes(t)
+    );
+
+    assert.equal(
+      foundExclusions.length,
+      0,
+      `SECURITY: Destructive tools found in ENABLED_TOOLS whitelist: ${foundExclusions.join(", ")}. ` +
+      `These must NEVER be exposed. Remove them immediately!`
+    );
+
+    // Verify the exclusion list in the comment is up to date
+    const exclusionComment = serverJs.match(
+      /\/\/ NEVER exposed, regardless of config:\s*\n\/\/ (.+)/
+    );
+    assert.ok(
+      exclusionComment,
+      "Must have '// NEVER exposed, regardless of config:' comment documenting exclusions"
+    );
+
+    const documentedExclusions = exclusionComment[1]
+      .split(",")
+      .map((s) => s.trim());
+
+    // Verify documented exclusions match expected exclusions
+    const missingFromComment = EXPECTED_EXCLUSIONS.filter(
+      (tool) => !documentedExclusions.includes(tool)
+    );
+    const extraInComment = documentedExclusions.filter(
+      (tool) => !EXPECTED_EXCLUSIONS.includes(tool)
+    );
+
+    assert.equal(
+      missingFromComment.length,
+      0,
+      `Exclusion comment is missing tools: ${missingFromComment.join(", ")}. ` +
+      `Update the comment or the EXPECTED_EXCLUSIONS list in this test.`
+    );
+
+    assert.equal(
+      extraInComment.length,
+      0,
+      `Exclusion comment lists unknown tools: ${extraInComment.join(", ")}. ` +
+      `Either add them to EXPECTED_EXCLUSIONS or remove from comment.`
+    );
+  });
+
   it("ENABLED_TOOLS whitelist includes all manifest.json tools", () => {
     // manifest.json declares which tools exist (for discovery/metadata)
     // server/index.js READ_TOOLS and WRITE_TOOLS control which are actually enabled
