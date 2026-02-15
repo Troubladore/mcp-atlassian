@@ -343,6 +343,74 @@ describe("server/index.js", () => {
       `Found shell 'sleep' command which is not available on Windows: ${sleepLines.join("; ")}`
     );
   });
+
+  it("removes stale containers before pulling images (ordering matters)", () => {
+    // Containers hold references to images, preventing `docker rmi`.
+    // The startup must remove old containers BEFORE attempting image cleanup.
+    // Use comment markers to find the actual execution order (not function defs).
+    const containerRemovalIdx = serverJs.indexOf("Removing stale containers");
+    const pullIdx = serverJs.indexOf("Checking for updates to");
+    // Find the cleanup CALL (after the pull), not the function definition
+    const cleanupCallIdx = serverJs.indexOf("// 3. Clean up old image versions");
+    assert.ok(containerRemovalIdx > -1, "Must remove stale containers on startup");
+    assert.ok(pullIdx > -1, "Must pull image on startup");
+    assert.ok(cleanupCallIdx > -1, "Must clean up old images on startup");
+    assert.ok(
+      containerRemovalIdx < pullIdx,
+      "Container removal must happen BEFORE image pull"
+    );
+    assert.ok(
+      pullIdx < cleanupCallIdx,
+      "Image pull must happen BEFORE old image cleanup"
+    );
+  });
+
+  it("cleanupOldImages removes old MCP images by tag (not by ID)", () => {
+    // Removing by image ID fails when multiple tags reference the same image.
+    // The cleanup must use tag names (Repository:Tag) for reliable removal.
+    const cleanupFn = serverJs.slice(
+      serverJs.indexOf("function cleanupOldImages"),
+      serverJs.indexOf("function pullImage")
+    );
+    assert.ok(cleanupFn.length > 0, "Must have a cleanupOldImages function");
+    // MCP images: should compare against IMAGE constant and remove by tag
+    assert.match(
+      cleanupFn,
+      /img !== IMAGE/,
+      "Must compare MCP images against IMAGE constant"
+    );
+    assert.doesNotMatch(
+      cleanupFn,
+      /docker rmi \$\{id\}/,
+      "Must NOT remove MCP images by ID (fails when multiple tags share an image)"
+    );
+  });
+
+  it("cleanupOldImages also cleans proxy images", () => {
+    const cleanupFn = serverJs.slice(
+      serverJs.indexOf("function cleanupOldImages"),
+      serverJs.indexOf("function pullImage")
+    );
+    assert.match(
+      cleanupFn,
+      /eruditis\/atlassian-proxy/,
+      "cleanupOldImages must also handle proxy images"
+    );
+    assert.match(
+      cleanupFn,
+      /PROXY_IMAGE/,
+      "Must compare proxy images against PROXY_IMAGE constant"
+    );
+  });
+
+  it("removes both MCP and proxy containers on startup", () => {
+    // Both containers must be removed to free image references
+    assert.match(
+      serverJs,
+      /MCP_CONTAINER_NAME, PROXY_CONTAINER_NAME/,
+      "Must remove both MCP and proxy containers on startup"
+    );
+  });
 });
 
 // =============================================================================

@@ -47,7 +47,7 @@ log(`Script: ${__dirname}`);
 log(`========================================`);
 
 // --- Configuration ---
-const IMAGE = "ghcr.io/troubladore/mcp-atlassian:v0.11.10";
+const IMAGE = "ghcr.io/troubladore/mcp-atlassian:v0.11.12";
 const PROXY_IMAGE = "eruditis/atlassian-proxy:latest";
 const PROXY_CONTAINER_NAME = "eruditis-atlassian-proxy";
 const MCP_CONTAINER_NAME = "eruditis-atlassian-mcp";
@@ -128,6 +128,50 @@ function dockerExec(args, { ignoreErrors = false, timeout = 120000 } = {}) {
       throw err;
     }
     return "";
+  }
+}
+
+/**
+ * Clean up old versions of our Docker images to prevent accumulation
+ */
+function cleanupOldImages() {
+  try {
+    log("Cleaning up old Docker images...");
+
+    // Remove old mcp-atlassian images (keep only current version)
+    const mcpImages = execSync(
+      `docker images ghcr.io/troubladore/mcp-atlassian --format "{{.Repository}}:{{.Tag}}"`,
+      { encoding: "utf-8", timeout: 10000 }
+    ).trim().split("\n").filter(Boolean);
+
+    for (const img of mcpImages) {
+      if (img !== IMAGE && img.startsWith("ghcr.io/troubladore/mcp-atlassian:")) {
+        log(`  Removing old image: ${img}`);
+        execSync(`docker rmi ${img}`, { stdio: "ignore", timeout: 30000 });
+      }
+    }
+
+    // Remove old proxy images that aren't the current tag
+    // (there should only be one :latest, but stale tags can accumulate)
+    const proxyImages = execSync(
+      `docker images eruditis/atlassian-proxy --format "{{.Repository}}:{{.Tag}}"`,
+      { encoding: "utf-8", timeout: 10000 }
+    ).trim().split("\n").filter(Boolean);
+
+    for (const img of proxyImages) {
+      if (img !== PROXY_IMAGE && img !== "<none>:<none>") {
+        log(`  Removing old proxy image: ${img}`);
+        execSync(`docker rmi ${img}`, { stdio: "ignore", timeout: 30000 });
+      }
+    }
+
+    // Clean up dangling images (orphaned layers from rebuilds)
+    execSync(`docker image prune -f`, { stdio: "ignore", timeout: 30000 });
+
+    log("Cleanup complete.");
+  } catch (err) {
+    // Don't fail startup if cleanup fails
+    log(`Warning: Image cleanup failed (non-fatal): ${err.message}`);
   }
 }
 
@@ -323,37 +367,42 @@ const enabledTools = ENABLE_WRITE
 
 // --- Ensure Docker images and proxy are ready ---
 
-// 1. Ensure mcp-atlassian image is available
-if (!imageExists(IMAGE)) {
-  log(`Docker image ${IMAGE} not found locally.`);
-  if (!pullImage(IMAGE)) {
-    log("Failed to pull Docker image. Please check your internet connection and Docker installation.");
-    process.exit(1);
+// 1. Remove any leftover containers FIRST so their images can be cleaned up.
+//    Containers hold references to images, preventing `docker rmi`.
+log("Removing stale containers from previous runs...");
+for (const name of [MCP_CONTAINER_NAME, PROXY_CONTAINER_NAME]) {
+  try {
+    const exists = execSync(
+      `docker ps -a --filter name=${name} --format "{{.Names}}"`,
+      { encoding: "utf-8", timeout: 10000 }
+    ).trim();
+    if (exists === name) {
+      log(`  Removing container: ${name}`);
+      execSync(`docker rm -f ${name}`, { stdio: "ignore", timeout: 10000 });
+    }
+  } catch (err) {
+    // Container doesn't exist, that's fine
   }
 }
 
-// 2. Ensure proxy container is running (network egress filtering)
+// 2. Pull the latest MCP server image
+// ALWAYS pull to get updates when extension version changes
+log(`Checking for updates to ${IMAGE}...`);
+if (!pullImage(IMAGE)) {
+  log("Failed to pull Docker image. Please check your internet connection and Docker installation.");
+  process.exit(1);
+}
+
+// 3. Clean up old image versions to prevent accumulation
+cleanupOldImages();
+
+// 4. Ensure proxy container is running (network egress filtering)
 if (!ensureProxyRunning()) {
   log("Failed to start filtering proxy. Extension cannot run without network restrictions.");
   process.exit(1);
 }
 
 log("Docker setup complete. Launching MCP server...");
-
-// --- Clean up any existing MCP container (from previous crash) ---
-try {
-  const existingMcp = execSync(
-    `docker ps -a --filter name=${MCP_CONTAINER_NAME} --format "{{.Names}}"`,
-    { encoding: "utf-8", timeout: 10000 }
-  ).trim();
-
-  if (existingMcp === MCP_CONTAINER_NAME) {
-    log("Removing previous MCP container...");
-    execSync(`docker rm -f ${MCP_CONTAINER_NAME}`, { stdio: "ignore", timeout: 10000 });
-  }
-} catch (err) {
-  // Container doesn't exist, that's fine
-}
 
 // --- Build Docker args ---
 const dockerArgs = [
