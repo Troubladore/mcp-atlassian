@@ -35,6 +35,41 @@ This directory contains a complete `.mcpb` (Model Context Protocol Bundle) exten
 - Memory and CPU limits enforced
 - No volume mounts or host network access
 
+## Deployment (What Works)
+
+**Current Status**: Extension is **fully functional** as of v1.0.5.
+
+### Prerequisites for Users
+
+1. **Docker Desktop** installed and running
+2. **Node.js 18+** installed on the system
+3. **Disable "Use built-in Node.js for MCP"** in Claude Desktop settings
+   - Go to Settings > Extensions
+   - Toggle off "Use built-in Node.js for MCP"
+   - Restart Claude Desktop
+
+### Why Disable Built-in Node.js?
+
+Claude Desktop's built-in Node.js runtime has a [known bug](https://github.com/modelcontextprotocol/mcpb/issues/45) (as of Feb 2026) that causes Node.js extensions to crash after receiving the MCP `initialize` message. This affects many published extensions (Postman, Socket, PDF Filler, etc.), not just ours.
+
+**With system Node.js**: Extension works perfectly end-to-end:
+- ✅ Docker setup completes (pull image, build proxy, start containers)
+- ✅ MCP protocol handshake succeeds
+- ✅ All 18 tools load correctly
+- ✅ Queries to Confluence and Jira work
+
+**With built-in Node.js**: Extension crashes silently with zero stderr output.
+
+### Deployment Checklist
+
+When deploying to your team:
+
+1. **Upload** `eruditis-atlassian-1.0.5.mcpb` to Claude team settings
+2. **Document** the Node.js prerequisite (link to README.md)
+3. **Test** on one machine first (Windows + Mac if your team has both)
+4. **Verify** Docker Desktop is running before use
+5. **Monitor** for upstream fix to built-in Node.js bug (we can re-enable it later)
+
 ### Repository Security Improvements
 
 We also fixed security issues in the repository:

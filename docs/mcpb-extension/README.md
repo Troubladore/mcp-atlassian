@@ -197,8 +197,13 @@ PDF Filler, and many other published extensions are affected.
 4. Ensure Node.js 18+ is installed on your system (`node --version`)
 5. Restart Claude Desktop
 
-The extension works correctly with system Node.js. We will re-enable the
-built-in runtime once Anthropic resolves the upstream issue.
+**Status**: The extension is **fully functional** with system Node.js. All features work:
+- ✅ Docker setup (pulls image, builds proxy, starts containers)
+- ✅ Network egress filtering (only Atlassian domains allowed)
+- ✅ MCP protocol handshake and tool loading
+- ✅ Confluence and Jira queries
+
+We will re-enable the built-in runtime once Anthropic resolves the upstream issue.
 
 ## Updates
 
