@@ -806,10 +806,7 @@ class PagesMixin(ConfluenceClient):
                 children_by_parent[parent_id] = sort_by_position(children_by_parent[parent_id])
 
             # Build ASCII tree
-            def build_tree(page_ids, prefix="", is_last_list=None):
-                if is_last_list is None:
-                    is_last_list = []
-
+            def build_tree(page_ids, prefix=""):
                 lines = []
                 for i, page_id in enumerate(page_ids):
                     is_last = (i == len(page_ids) - 1)
@@ -822,11 +819,11 @@ class PagesMixin(ConfluenceClient):
 
                     # Recursively add children
                     if page_id in children_by_parent:
-                        extension = "    " if is_last else "|   "
+                        # Extend prefix for child lines
+                        child_prefix = prefix + ("    " if is_last else "|   ")
                         child_lines = build_tree(
                             children_by_parent[page_id],
-                            prefix + extension,
-                            is_last_list + [is_last]
+                            child_prefix
                         )
                         lines.extend(child_lines)
 
