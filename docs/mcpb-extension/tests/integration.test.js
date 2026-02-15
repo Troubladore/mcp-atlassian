@@ -7,7 +7,7 @@
 
 const { describe, it, before, after } = require("node:test");
 const assert = require("node:assert/strict");
-const { execSync } = require("node:child_process");
+const { execSync, spawn } = require("node:child_process");
 const path = require("node:path");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -202,5 +202,81 @@ describe("mcp-atlassian end-to-end", () => {
       response.result.protocolVersion,
       "Must include protocolVersion"
     );
+  });
+});
+
+// =============================================================================
+// Claude Desktop simulation - test with restricted PATH
+// =============================================================================
+describe("server/index.js startup behavior (Claude Desktop simulation)", () => {
+  it("produces diagnostic output even when Docker is missing from PATH", function(t, done) {
+    // Simulate Claude Desktop's built-in Node.js which may not have docker in PATH
+    // Find where node is, but remove docker paths
+    const nodePath = execSync("which node", { encoding: "utf-8" }).trim();
+    const nodeDir = path.dirname(nodePath);
+    const restrictedPath = `${nodeDir}:/usr/bin:/bin`; // Keep node but remove /usr/local/bin where docker often lives
+
+    const child = spawn(nodePath, [path.join(ROOT, "server/index.js")], {
+      env: {
+        ...process.env,
+        PATH: restrictedPath,
+        // Provide required config to pass validation
+        ATLASSIAN_URL: "https://test.atlassian.net",
+        ATLASSIAN_EMAIL: "test@test.com",
+        ATLASSIAN_API_TOKEN: "fake-token",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 10000,
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (data) => {
+      stdout += data.toString();
+    });
+
+    child.stderr.on("data", (data) => {
+      stderr += data.toString();
+    });
+
+    child.on("close", (code) => {
+      // Should exit with error code (Docker not found)
+      assert.ok(code !== 0, `Expected non-zero exit code, got ${code}`);
+
+      const output = stderr + stdout;
+
+      // CRITICAL: Must see our diagnostic output
+      assert.ok(
+        output.includes("[eruditis-atlassian]"),
+        `No diagnostic output found. Output:\n${output.slice(0, 500)}`
+      );
+
+      // Must see version banner
+      assert.ok(
+        output.includes("STARTING v1.0.3") || output.includes("STARTING v"),
+        `Version banner not found. Output:\n${output.slice(0, 500)}`
+      );
+
+      // Must see Docker check step
+      assert.ok(
+        output.includes("Checking Docker availability") || output.includes("Docker"),
+        `Docker check not logged. Output:\n${output.slice(0, 500)}`
+      );
+
+      // If Docker is actually missing, should see error
+      if (!output.includes("✓ Docker found")) {
+        assert.ok(
+          output.includes("ERROR") || output.includes("not found"),
+          `Missing Docker error message. Output:\n${output.slice(0, 500)}`
+        );
+      }
+
+      done();
+    });
+
+    child.on("error", (err) => {
+      assert.fail(`Process spawn failed: ${err.message}`);
+    });
   });
 });

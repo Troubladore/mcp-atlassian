@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "eruditis-atlassian",
   "display_name": "Eruditis Atlassian (Confluence + Jira)",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Connect Claude to Eruditis Confluence and Jira via sooperset/mcp-atlassian running in a sandboxed Docker container with network egress filtering. Read-only by default.",
   "long_description": "This extension runs the mcp-atlassian MCP server inside a Docker container with network egress filtering (can ONLY connect to Atlassian domains), no filesystem mounts, and no host network access. An automatic filtering proxy prevents data exfiltration to arbitrary endpoints. Your API token is stored encrypted in your OS keychain. By default, only read operations and page create/update are enabled. Destructive operations (delete) are never exposed.",
   "author": {
