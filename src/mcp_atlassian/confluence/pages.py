@@ -723,6 +723,185 @@ class PagesMixin(ConfluenceClient):
             logger.error(f"Error updating page {page_id}: {str(e)}")
             raise Exception(f"Failed to update page {page_id}: {str(e)}") from e
 
+    def get_space_page_tree(
+        self,
+        space_key: str,
+        limit: int = 500,
+    ) -> str:
+        """Get hierarchical page tree for a space.
+
+        Fetches all pages in a space and reconstructs the hierarchy
+        based on parent relationships and position attributes.
+
+        Args:
+            space_key: The key of the space
+            limit: Maximum number of pages to fetch (default: 500)
+
+        Returns:
+            ASCII tree representation of the page hierarchy
+
+        Raises:
+            Exception: If there is an error fetching pages
+        """
+        try:
+            # Fetch all pages from the space
+            pages = self.confluence.get_all_pages_from_space(
+                space=space_key,
+                start=0,
+                limit=limit,
+                expand="ancestors,metadata.properties.position",
+            )
+
+            if not pages:
+                return f"Space '{space_key}' (no pages found)"
+
+            # Build lookup maps
+            pages_by_id = {}
+            children_by_parent = {}
+            root_pages = []
+
+            for page in pages:
+                page_id = page.get("id")
+                title = page.get("title", "Untitled")
+
+                # Extract position from extensions (v1 API format)
+                position = page.get("extensions", {}).get("position")
+
+                pages_by_id[page_id] = {
+                    "id": page_id,
+                    "title": title,
+                    "position": position,
+                }
+
+                # Determine parent
+                ancestors = page.get("ancestors", [])
+                if ancestors:
+                    # Parent is the last ancestor
+                    parent_id = ancestors[-1].get("id")
+                    if parent_id not in children_by_parent:
+                        children_by_parent[parent_id] = []
+                    children_by_parent[parent_id].append(page_id)
+                else:
+                    # Root page (no ancestors)
+                    root_pages.append(page_id)
+
+            # Sort children by position (if available)
+            def sort_by_position(page_ids):
+                pages_with_pos = []
+                pages_without_pos = []
+                for pid in page_ids:
+                    pos = pages_by_id[pid]["position"]
+                    if pos is not None:
+                        pages_with_pos.append((pos, pid))
+                    else:
+                        pages_without_pos.append(pid)
+                # Sort positioned pages numerically, then alphabetically for unpositioned
+                pages_with_pos.sort()
+                pages_without_pos.sort(key=lambda pid: pages_by_id[pid]["title"])
+                return [pid for _, pid in pages_with_pos] + pages_without_pos
+
+            # Sort root pages and all children
+            root_pages = sort_by_position(root_pages)
+            for parent_id in children_by_parent:
+                children_by_parent[parent_id] = sort_by_position(children_by_parent[parent_id])
+
+            # Build ASCII tree
+            def build_tree(page_ids, prefix="", is_last_list=None):
+                if is_last_list is None:
+                    is_last_list = []
+
+                lines = []
+                for i, page_id in enumerate(page_ids):
+                    is_last = (i == len(page_ids) - 1)
+                    page_info = pages_by_id[page_id]
+
+                    # Build the tree connector
+                    connector = "+-- " if is_last else "|-- "
+                    line = prefix + connector + f"{page_info['title']} (ID: {page_id})"
+                    lines.append(line)
+
+                    # Recursively add children
+                    if page_id in children_by_parent:
+                        extension = "    " if is_last else "|   "
+                        child_lines = build_tree(
+                            children_by_parent[page_id],
+                            prefix + extension,
+                            is_last_list + [is_last]
+                        )
+                        lines.extend(child_lines)
+
+                return lines
+
+            # Generate the tree
+            tree_lines = [f"Space: {space_key}", ""]
+            tree_lines.extend(build_tree(root_pages))
+
+            return "\n".join(tree_lines)
+
+        except Exception as e:
+            logger.error(f"Error fetching page tree for space '{space_key}': {e}")
+            raise Exception(f"Failed to fetch page tree: {e}") from e
+
+    def move_page_position(
+        self,
+        page_id: str,
+        position: str,
+        target_id: str,
+    ) -> bool:
+        """Move a page to a specific position relative to a target page.
+
+        Uses the Confluence v1 REST API endpoint:
+        PUT /rest/api/content/{id}/move/{position}/{targetId}
+
+        Args:
+            page_id: The ID of the page to move
+            position: Position relative to target - "before", "after", or "append"
+                     - "before": Place as sibling before the target page
+                     - "after": Place as sibling after the target page
+                     - "append": Place as child of the target page
+            target_id: The ID of the target page for positioning
+
+        Returns:
+            True if the page was moved successfully
+
+        Raises:
+            ValueError: If position is invalid or move operation fails
+            Exception: If there is an error moving the page
+
+        Warning:
+            Using "before" or "after" when target_id is a top-level page will
+            move the page to the space root, which may be hard to find in the UI.
+        """
+        if position not in ["before", "after", "append"]:
+            raise ValueError(
+                f"Invalid position '{position}'. Must be 'before', 'after', or 'append'"
+            )
+
+        try:
+            # Use the v1 API endpoint for positioning
+            url = f"{self.config.url}/rest/api/content/{page_id}/move/{position}/{target_id}"
+
+            # Use the atlassian-python-api session for authentication
+            response = self.confluence._session.put(url, headers={"X-Atlassian-Token": "no-check"})
+            response.raise_for_status()
+
+            logger.info(
+                f"Successfully moved page '{page_id}' to position '{position}' relative to '{target_id}'"
+            )
+            return True
+        except requests.HTTPError as e:
+            logger.error(f"HTTP error moving page '{page_id}': {e}")
+            if e.response is not None:
+                content = e.response.text or ""
+                content_preview = content[:200] + "..." if len(content) > 200 else content
+                logger.error(
+                    f"Response status: {e.response.status_code}, content: {content_preview}"
+                )
+            raise ValueError(f"Failed to move page '{page_id}': {e}") from e
+        except Exception as e:
+            logger.error(f"Error moving page '{page_id}': {e}")
+            raise Exception(f"Failed to move page '{page_id}': {e}") from e
+
     def get_page_children(
         self,
         page_id: str,
