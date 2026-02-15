@@ -327,6 +327,9 @@ const READ_TOOLS = [
   "confluence_search",
   "confluence_get_page",
   "confluence_get_page_children",
+  "confluence_get_page_ancestors",
+  "confluence_list_spaces",
+  "confluence_get_space_page_tree",
   "confluence_get_comments",
   "confluence_get_labels",
   "confluence_search_user",
@@ -348,6 +351,7 @@ const READ_TOOLS = [
 const WRITE_TOOLS = [
   "confluence_create_page",
   "confluence_update_page",
+  "confluence_move_page_position",
   "confluence_add_label",
   "confluence_add_comment",
   "jira_create_issue",
