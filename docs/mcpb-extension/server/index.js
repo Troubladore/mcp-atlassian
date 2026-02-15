@@ -192,7 +192,7 @@ function ensureProxyRunning() {
     return true;
   }
 
-  // Check if old proxy container exists (stopped)
+  // Check if old proxy container exists (stopped or running but unhealthy)
   try {
     const existingContainer = execSync(
       `docker ps -a --filter name=${PROXY_CONTAINER_NAME} --format "{{.Names}}"`,
@@ -200,8 +200,8 @@ function ensureProxyRunning() {
     ).trim();
 
     if (existingContainer === PROXY_CONTAINER_NAME) {
-      log("Removing stopped proxy container...");
-      execSync(`docker rm ${PROXY_CONTAINER_NAME}`, { stdio: "ignore", timeout: 10000 });
+      log("Removing existing proxy container...");
+      execSync(`docker rm -f ${PROXY_CONTAINER_NAME}`, { stdio: "ignore", timeout: 10000 });
     }
   } catch (err) {
     // Container doesn't exist, that's fine
