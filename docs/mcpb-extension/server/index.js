@@ -323,13 +323,13 @@ const enabledTools = ENABLE_WRITE
 
 // --- Ensure Docker images and proxy are ready ---
 
-// 1. Ensure mcp-atlassian image is available
-if (!imageExists(IMAGE)) {
-  log(`Docker image ${IMAGE} not found locally.`);
-  if (!pullImage(IMAGE)) {
-    log("Failed to pull Docker image. Please check your internet connection and Docker installation.");
-    process.exit(1);
-  }
+// 1. Ensure mcp-atlassian image is up to date
+// ALWAYS pull to get updates when extension version changes
+// This ensures users get new features without manual docker cleanup
+log(`Checking for updates to ${IMAGE}...`);
+if (!pullImage(IMAGE)) {
+  log("Failed to pull Docker image. Please check your internet connection and Docker installation.");
+  process.exit(1);
 }
 
 // 2. Ensure proxy container is running (network egress filtering)
