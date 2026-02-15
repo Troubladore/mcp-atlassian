@@ -9,7 +9,7 @@ const path = require("path");
 const fs = require("fs");
 
 // --- Configuration ---
-const IMAGE = "ghcr.io/sooperset/mcp-atlassian:v0.11.10";
+const IMAGE = "ghcr.io/troubladore/mcp-atlassian:v0.11.10";
 const PROXY_IMAGE = "eruditis/atlassian-proxy:latest";
 const PROXY_CONTAINER_NAME = "eruditis-atlassian-proxy";
 const PROXY_PORT = 3128;
@@ -148,9 +148,9 @@ function ensureProxyRunning() {
         --cap-drop=ALL \
         --security-opt no-new-privileges:true \
         --read-only \
-        --tmpfs /var/cache/squid:noexec,nosuid,size=64m \
-        --tmpfs /var/log/squid:noexec,nosuid,size=16m \
-        --tmpfs /var/run/squid:noexec,nosuid,size=8m \
+        --tmpfs /var/cache/squid:noexec,nosuid,size=64m,uid=31,gid=31 \
+        --tmpfs /var/log/squid:noexec,nosuid,size=16m,uid=31,gid=31 \
+        --tmpfs /var/run/squid:noexec,nosuid,size=8m,uid=31,gid=31 \
         ${PROXY_IMAGE}`,
       { stdio: 'inherit' }
     );
