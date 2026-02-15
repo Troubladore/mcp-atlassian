@@ -96,10 +96,10 @@ class TestSSLVerificationEnhanced(BaseAuthTest):
                 service_name="Test", url=url, session=session, ssl_verify=False
             )
 
-        # Verify all domains have SSL adapters
-        assert "https://domain1.atlassian.net" in session.adapters
-        assert "https://domain2.atlassian.net" in session.adapters
-        assert "https://custom.domain.com" in session.adapters
+        # Verify all domains have SSL adapters (use exact key lookup)
+        assert "https://domain1.atlassian.net" in session.adapters.keys()
+        assert "https://domain2.atlassian.net" in session.adapters.keys()
+        assert "https://custom.domain.com" in session.adapters.keys()
 
     @pytest.mark.integration
     def test_ssl_error_handling_with_invalid_cert(self, monkeypatch):

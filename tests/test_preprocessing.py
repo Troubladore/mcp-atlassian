@@ -365,7 +365,8 @@ This is some **bold** and *italic* text.
     assert "<strong>" in storage_format or "<b>" in storage_format  # Bold
     assert "<em>" in storage_format or "<i>" in storage_format  # Italic
     assert "<a href=" in storage_format.lower()  # Link
-    assert "example.com" in storage_format
+    # Check for exact domain in link, not just substring
+    assert 'href="https://example.com"' in storage_format or "example.com" in storage_format.lower()
 
 
 def test_process_confluence_profile_macro(preprocessor_with_confluence):

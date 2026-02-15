@@ -154,8 +154,8 @@ class JiraPreprocessor(BasePreprocessor):
         # Inline code
         output = re.sub(r"\{\{([^}]+)\}\}", r"`\1`", output)
 
-        # Citation
-        output = re.sub(r"\?\?((?:.[^?]|[^?].)+)\?\?", r"<cite>\1</cite>", output)
+        # Citation - using non-backtracking pattern to prevent ReDoS
+        output = re.sub(r"\?\?([^?]+(?:\?(?!\?)[^?]*)*)\?\?", r"<cite>\1</cite>", output)
 
         # Inserted text
         output = re.sub(r"\+([^+]*)\+", r"<ins>\1</ins>", output)
