@@ -50,6 +50,8 @@ log(`========================================`);
 const IMAGE = "ghcr.io/troubladore/mcp-atlassian:v0.11.10";
 const PROXY_IMAGE = "eruditis/atlassian-proxy:latest";
 const PROXY_CONTAINER_NAME = "eruditis-atlassian-proxy";
+const MCP_CONTAINER_NAME = "eruditis-atlassian-mcp";
+const NETWORK_NAME = "eruditis-atlassian-net";
 const PROXY_PORT = 3128;
 
 // --- Check Docker availability early ---
@@ -216,13 +218,12 @@ function ensureProxyRunning() {
   }
 
   // Create Docker network for proxy and mcp-atlassian
-  const networkName = "eruditis-atlassian-net";
   try {
-    execSync(`docker network inspect ${networkName}`, { stdio: "ignore", timeout: 10000 });
+    execSync(`docker network inspect ${NETWORK_NAME}`, { stdio: "ignore", timeout: 10000 });
   } catch (err) {
     // Network doesn't exist, create it
     log("Creating Docker network...");
-    execSync(`docker network create ${networkName}`, { stdio: "ignore", timeout: 10000 });
+    execSync(`docker network create ${NETWORK_NAME}`, { stdio: "ignore", timeout: 10000 });
   }
 
   // Start proxy container
@@ -231,7 +232,7 @@ function ensureProxyRunning() {
     dockerExec(
       `run -d --name ${PROXY_CONTAINER_NAME} ` +
       `--restart=unless-stopped ` +
-      `--network=${networkName} ` +
+      `--network=${NETWORK_NAME} ` +
       `--cap-drop=ALL ` +
       `--security-opt no-new-privileges:true ` +
       `--read-only ` +
@@ -334,14 +335,28 @@ if (!ensureProxyRunning()) {
 
 log("Docker setup complete. Launching MCP server...");
 
-// --- Build Docker args ---
-const networkName = "eruditis-atlassian-net";
+// --- Clean up any existing MCP container (from previous crash) ---
+try {
+  const existingMcp = execSync(
+    `docker ps -a --filter name=${MCP_CONTAINER_NAME} --format "{{.Names}}"`,
+    { encoding: "utf-8", timeout: 10000 }
+  ).trim();
 
+  if (existingMcp === MCP_CONTAINER_NAME) {
+    log("Removing previous MCP container...");
+    execSync(`docker rm -f ${MCP_CONTAINER_NAME}`, { stdio: "ignore", timeout: 10000 });
+  }
+} catch (err) {
+  // Container doesn't exist, that's fine
+}
+
+// --- Build Docker args ---
 const dockerArgs = [
   "run",
   "--rm",           // Remove container on exit
   "-i",             // Interactive (for stdio transport)
-  `--network=${networkName}`, // Isolated network with proxy (no published ports)
+  "--name", MCP_CONTAINER_NAME, // Named container for easier debugging
+  `--network=${NETWORK_NAME}`, // Isolated network with proxy (no published ports)
   "--cap-drop=ALL", // Drop all Linux capabilities
   "--security-opt", "no-new-privileges:true", // Prevent privilege escalation
   "--read-only",    // Read-only root filesystem
