@@ -10,8 +10,10 @@ This directory contains a complete `.mcpb` (Model Context Protocol Bundle) exten
 2. **server/index.js** - Node.js wrapper that manages Docker containers
 3. **proxy/Dockerfile** - Atlassian-only filtering HTTP proxy (Squid)
 4. **proxy/squid.conf** - Proxy allowlist configuration
-5. **README.md** - End-user installation and usage instructions
-6. **BUILD_NOTES.md** - This file (developer notes)
+5. **tests/static.test.js** - Static analysis tests (no Docker needed)
+6. **tests/integration.test.js** - Docker integration tests
+7. **README.md** - End-user installation and usage instructions
+8. **BUILD_NOTES.md** - This file (developer notes)
 
 ### Security Architecture
 
@@ -41,48 +43,137 @@ We also fixed security issues in the repository:
 - **15 GitHub Code Scanning alerts**: Fixed clear-text logging, ReDoS, URL validation
 - **Security documentation**: Comprehensive scanning protocol and CVE analysis
 
-## How to Build the `.mcpb` File
+## Running Tests
+
+Tests must pass before building or releasing. There are two test suites:
+
+### Static Analysis (fast, no Docker)
+
+```bash
+node --test tests/static.test.js
+```
+
+Validates squid.conf, server/index.js, and manifest.json for known pitfalls
+including Squid 6.6 compatibility, security hardening flags, image references,
+and tmpfs mount configuration. **21 tests, runs in <1 second.**
+
+### Integration Tests (requires Docker)
+
+```bash
+node --test tests/integration.test.js
+```
+
+Builds the proxy image, starts it with full security hardening, and runs an
+end-to-end MCP initialize handshake through the proxy. **7 tests, ~20 seconds.**
+
+### Run Both
+
+```bash
+node --test tests/*.test.js
+```
+
+## Known Pitfalls (Lessons Learned)
+
+These are bugs we've hit and fixed. The test suite catches all of them:
+
+1. **Squid 6.6 rejects redundant ACL domains.** If `.atlassian.com` is in an
+   ACL, adding `atlassian.com` or `api.atlassian.com` to the same ACL is a
+   FATAL error — Squid considers them already covered by the wildcard. Only
+   use the `.domain.com` form (with leading dot).
+
+2. **Squid PID file must be on writable tmpfs.** With `--read-only` filesystem,
+   the default PID path `/var/run/squid.pid` is unwritable. Set `pid_filename`
+   in squid.conf to a path under a tmpfs mount (e.g., `/var/run/squid/squid.pid`).
+
+3. **tmpfs mounts need uid/gid for non-root containers.** Docker `--tmpfs`
+   mounts default to root ownership. Squid runs as uid 31 on Alpine, so all
+   proxy tmpfs mounts need `uid=31,gid=31` or Squid can't write to them.
+
+4. **Squid has a built-in `localhost` ACL.** Don't redefine `acl localhost src
+   127.0.0.1/32 ::1` — it causes warnings and is redundant.
+
+5. **GHCR requires a classic PAT.** Fine-grained GitHub tokens don't support
+   the `write:packages` scope. You must use a classic Personal Access Token.
+
+## How to Build and Release
 
 ### Prerequisites
 
-1. **Node.js 18+** and **npm** installed on your build machine
-2. **@anthropic-ai/mcpb** CLI tool:
+1. **Docker** installed and running
+2. **Node.js 18+** and **npm** installed
+3. **@anthropic-ai/mcpb** CLI tool:
    ```bash
    npm install -g @anthropic-ai/mcpb
    ```
+4. **GitHub Classic PAT** with `write:packages` scope (for GHCR push)
+   - Generate at: https://github.com/settings/tokens/new
+   - Fine-grained tokens do NOT support packages — must be classic
 
-### Build Steps
+### Step 1: Build the Docker Image from Source
 
-From this directory (`eruditis-atlassian-mcpb/`):
+We build our own image from the audited fork rather than pulling the upstream
+pre-built image. This gives us full supply-chain control over what runs on
+team members' machines.
+
+From the **repo root** (`mcp-atlassian/`):
 
 ```bash
-# Build the .mcpb archive
-mcpb pack
+# Build from our audited Dockerfile
+docker build -t ghcr.io/troubladore/mcp-atlassian:v0.11.10 .
+```
 
-# This will create: eruditis-atlassian.mcpb
+### Step 2: Push the Image to GHCR
+
+```bash
+# Authenticate (requires classic PAT with write:packages scope)
+echo "YOUR_CLASSIC_PAT" | docker login ghcr.io -u Troubladore --password-stdin
+
+# Push
+docker push ghcr.io/troubladore/mcp-atlassian:v0.11.10
+```
+
+After the first push, make the package public at:
+https://github.com/users/Troubladore/packages/container/mcp-atlassian/settings
+
+### Step 3: Run Tests
+
+```bash
+cd docs/mcpb-extension
+node --test tests/*.test.js
+```
+
+All 28 tests must pass before packaging.
+
+### Step 4: Build the `.mcpb` Extension
+
+From this directory (`docs/mcpb-extension/`):
+
+```bash
+# Build the .mcpb archive with explicit output name
+mcpb pack . eruditis-atlassian-1.0.0.mcpb
 ```
 
 The resulting `.mcpb` file is a ZIP archive containing all the files in this directory.
 
-## Distribution Options
+### Step 5: Upload to Claude Team Settings
 
-### Option A: Org Upload (Team/Enterprise Plan)
-
-1. Go to Claude Desktop Settings > Connectors > Desktop tab
+1. Go to Claude team settings > Connectors > Desktop tab
 2. Under "Custom team extensions", click "Add custom extension"
-3. Upload the `.mcpb` file
+3. Upload the `eruditis-atlassian-<version>.mcpb` file
 4. Team members will see it in their Extensions list
 
-### Option B: Direct File Sharing
+## Alternative Distribution
 
-Share the `.mcpb` file via Slack/email/Drive. Users double-click to install.
+If team upload isn't available, share the `.mcpb` file via Slack/email/Drive.
+Users double-click to install.
 
 ## Testing Before Distribution
 
-### 1. Pull the Docker image
+### 1. Verify the Docker image
 
 ```bash
-docker pull ghcr.io/sooperset/mcp-atlassian:v0.11.10
+# Image should already exist from the build step
+docker images ghcr.io/troubladore/mcp-atlassian:v0.11.10
 ```
 
 ### 2. Install in Claude Desktop
@@ -99,7 +190,7 @@ Ask Claude to search Confluence or fetch a Jira issue.
 ### 4. Verify container security
 
 ```bash
-docker inspect $(docker ps -q --filter ancestor=ghcr.io/sooperset/mcp-atlassian:v0.11.10) \
+docker inspect $(docker ps -q --filter ancestor=ghcr.io/troubladore/mcp-atlassian:v0.11.10) \
   --format '{{json .HostConfig.SecurityOpt}} {{json .HostConfig.CapDrop}} {{json .HostConfig.ReadonlyRootfs}}'
 
 # Expected output: ["no-new-privileges:true"] ["ALL"] true
@@ -116,10 +207,14 @@ docker inspect $(docker ps -q --filter ancestor=ghcr.io/sooperset/mcp-atlassian:
 
 When mcp-atlassian releases a new version:
 
-1. Update `IMAGE` constant in `server/index.js` to the new tag (e.g., `v0.11.11`)
-2. Update `"version"` in `manifest.json` (bump semver)
-3. Run `mcpb pack` to rebuild
-4. Re-distribute to users
+1. Merge upstream changes into `eruditis/main` branch
+2. Review changes for security (check `security/SCANNING_PROTOCOL.md`)
+3. Build new Docker image: `docker build -t ghcr.io/troubladore/mcp-atlassian:vX.Y.Z .`
+4. Push to GHCR: `docker push ghcr.io/troubladore/mcp-atlassian:vX.Y.Z`
+5. Update `IMAGE` constant in `server/index.js` to the new tag
+6. Update `"version"` in `manifest.json` (bump semver)
+7. Rebuild: `mcpb pack . eruditis-atlassian-X.Y.Z.mcpb`
+8. Re-upload to Claude team settings
 
 ## Security Posture
 
@@ -186,24 +281,36 @@ Both mcp-atlassian and proxy containers:
 - **Credential encryption**: API tokens marked `"sensitive": true` in manifest
 
 ### Supply Chain
-- Uses official image from `ghcr.io/sooperset/mcp-atlassian`
-- For maximum control, fork the repo, audit the code, and build your own image
+- Image built from our audited fork at `ghcr.io/troubladore/mcp-atlassian`
+- We do NOT pull pre-built images from upstream — we build from source
+- All code changes are reviewed and security-scanned before image builds
 
 ## Security Checklist
 
-Before distributing any version, verify:
+Before distributing any version:
 
-- [ ] Docker image tag is pinned to a specific version (never `:latest`)
-- [ ] `--cap-drop=ALL` is in server/index.js:258
-- [ ] `--security-opt no-new-privileges:true` is in server/index.js:259
-- [ ] `--read-only` is in server/index.js:260
-- [ ] No `-v` volume mounts exist in server/index.js
-- [ ] No `--network=host` in server/index.js
-- [ ] `ENABLED_TOOLS` explicitly lists allowed tools (server/index.js:97-98)
-- [ ] Delete operations NOT in any tool list (server/index.js:71-72 comment)
-- [ ] `atlassian_api_token` has `"sensitive": true` in manifest.json:216
-- [ ] Default for `enable_write_tools` is `"false"` in manifest.json:224
-- [ ] No secrets hardcoded in any files
+```bash
+# Automated checks (covers all items below)
+node --test tests/static.test.js
+node --test tests/integration.test.js
+```
+
+The test suite verifies:
+- [ ] Docker image tag pinned to specific version (not `:latest`)
+- [ ] Image references `ghcr.io/troubladore/` (not upstream `sooperset`)
+- [ ] `--cap-drop=ALL` on both proxy and mcp-atlassian containers
+- [ ] `--security-opt no-new-privileges:true` on both containers
+- [ ] `--read-only` filesystem on both containers
+- [ ] No `-v` volume mounts
+- [ ] No `--network=host`
+- [ ] Proxy tmpfs mounts have `uid=31,gid=31`
+- [ ] Delete operations not in tool arrays
+- [ ] `atlassian_api_token` has `"sensitive": true` in manifest
+- [ ] `enable_write_tools` defaults to `"false"`
+- [ ] squid.conf has no redundant ACL entries (Squid 6.6 compat)
+- [ ] squid.conf PID file on writable tmpfs path
+- [ ] Proxy builds, starts, and listens on port 3128
+- [ ] MCP initialize handshake works end-to-end
 
 ## Architecture Decisions
 
