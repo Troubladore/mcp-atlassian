@@ -21,6 +21,49 @@ confluence_mcp = FastMCP(
 )
 
 
+def parse_page_id_from_url(page_id_or_url: str | int | None) -> str | None:
+    """Extract page ID from URL or return as-is if already an ID.
+
+    Handles formats like:
+    - https://site.atlassian.net/wiki/spaces/TEAM/pages/123456/Title
+    - https://site.atlassian.net/wiki/pages/viewpage.action?pageId=123456
+    - 123456 (already an ID)
+
+    Args:
+        page_id_or_url: Page ID, URL, or None
+
+    Returns:
+        Extracted page ID or None if invalid
+    """
+    if not page_id_or_url:
+        return None
+
+    page_str = str(page_id_or_url)
+
+    # If it's not a URL, return as-is
+    if "http://" not in page_str and "https://" not in page_str:
+        return page_str
+
+    # Try modern URL format: /pages/123456/Title
+    import re
+    match = re.search(r'/pages/(\d+)', page_str)
+    if match:
+        extracted = match.group(1)
+        logger.info(f"Auto-extracted page_id={extracted} from URL")
+        return extracted
+
+    # Try legacy format: ?pageId=123456
+    match = re.search(r'[?&]pageId=(\d+)', page_str)
+    if match:
+        extracted = match.group(1)
+        logger.info(f"Auto-extracted page_id={extracted} from URL")
+        return extracted
+
+    # Couldn't parse - return as-is and let API handle it
+    logger.warning(f"Could not extract page_id from URL: {page_str}")
+    return page_str
+
+
 @confluence_mcp.tool(
     tags={"confluence", "read"},
     annotations={"title": "Search Content", "readOnlyHint": True},
@@ -122,48 +165,35 @@ async def get_page(
     page_id: Annotated[
         str | int | None,
         Field(
-            description=(
-                "Confluence page ID (numeric ID, can be found in the page URL). "
-                "For example, in the URL 'https://example.atlassian.net/wiki/spaces/TEAM/pages/123456789/Page+Title', "
-                "the page ID is '123456789'. "
-                "Provide this OR both 'title' and 'space_key'. If page_id is provided, title and space_key will be ignored."
-            ),
+            description="Page ID, URL, or use title+space_key",
             default=None,
         ),
     ] = None,
     title: Annotated[
         str | None,
         Field(
-            description=(
-                "The exact title of the Confluence page. Use this with 'space_key' if 'page_id' is not known."
-            ),
+            description="Page title (with space_key)",
             default=None,
         ),
     ] = None,
     space_key: Annotated[
         str | None,
         Field(
-            description=(
-                "The key of the Confluence space where the page resides (e.g., 'DEV', 'TEAM'). Required if using 'title'."
-            ),
+            description="Space key (with title)",
             default=None,
         ),
     ] = None,
     include_metadata: Annotated[
         bool,
         Field(
-            description="Whether to include page metadata such as creation date, last update, version, and labels.",
+            description="Include metadata",
             default=True,
         ),
     ] = True,
     convert_to_markdown: Annotated[
         bool,
         Field(
-            description=(
-                "Whether to convert page to markdown (true) or keep it in raw HTML format (false). "
-                "Raw HTML can reveal macros (like dates) not visible in markdown, but CAUTION: "
-                "using HTML significantly increases token usage in AI responses."
-            ),
+            description="Convert to markdown (false=raw HTML)",
             default=True,
         ),
     ] = True,
@@ -183,6 +213,9 @@ async def get_page(
     """
     confluence_fetcher = await get_confluence_fetcher(ctx)
     page_object = None
+
+    # Auto-parse URLs to extract page_id
+    page_id = parse_page_id_from_url(page_id)
 
     if page_id:
         if title or space_key:
@@ -241,21 +274,19 @@ async def get_page_children(
     ctx: Context,
     parent_id: Annotated[
         str,
-        Field(
-            description="The ID of the parent page whose children you want to retrieve"
-        ),
+        Field(description="Parent page ID"),
     ],
     expand: Annotated[
         str,
         Field(
-            description="Fields to expand in the response (e.g., 'version', 'body.storage')",
+            description="Fields to expand (version, body.storage)",
             default="version",
         ),
     ] = "version",
     limit: Annotated[
         int,
         Field(
-            description="Maximum number of child items to return (1-50)",
+            description="Max children to return",
             default=25,
             ge=1,
             le=50,
@@ -264,25 +295,25 @@ async def get_page_children(
     include_content: Annotated[
         bool,
         Field(
-            description="Whether to include the page content in the response",
+            description="Include page content",
             default=False,
         ),
     ] = False,
     convert_to_markdown: Annotated[
         bool,
         Field(
-            description="Whether to convert page content to markdown (true) or keep it in raw HTML format (false). Only relevant if include_content is true.",
+            description="Convert to markdown",
             default=True,
         ),
     ] = True,
     start: Annotated[
         int,
-        Field(description="Starting index for pagination (0-based)", default=0, ge=0),
+        Field(description="Pagination start index", default=0, ge=0),
     ] = 0,
     include_folders: Annotated[
         bool,
         Field(
-            description="Whether to include child folders in addition to child pages",
+            description="Include child folders",
             default=True,
         ),
     ] = True,
@@ -331,6 +362,184 @@ async def get_page_children(
         result = {"error": f"Failed to get child pages: {e}"}
 
     return json.dumps(result, indent=2, ensure_ascii=False)
+
+
+@confluence_mcp.tool(
+    tags={"confluence", "read"},
+    annotations={"title": "Get Page Ancestors", "readOnlyHint": True},
+)
+async def get_page_ancestors(
+    ctx: Context,
+    page_id: Annotated[
+        str,
+        Field(description="Page ID or URL"),
+    ],
+) -> str:
+    """Get ancestor pages (breadcrumb trail) for a specific Confluence page.
+
+    Returns all parent pages from the immediate parent up to the space root,
+    allowing you to understand the page's position in the hierarchy.
+
+    Args:
+        ctx: The FastMCP context.
+        page_id: Confluence page ID.
+
+    Returns:
+        JSON string representing a list of ancestor pages (immediate parent first, root last).
+    """
+    confluence_fetcher = await get_confluence_fetcher(ctx)
+
+    # Auto-parse URLs to extract page_id
+    page_id = parse_page_id_from_url(page_id)
+
+    ancestors = confluence_fetcher.get_page_ancestors(page_id)
+    formatted_ancestors = [ancestor.to_simplified_dict() for ancestor in ancestors]
+    return json.dumps(formatted_ancestors, indent=2, ensure_ascii=False)
+
+
+@confluence_mcp.tool(
+    tags={"confluence", "read"},
+    annotations={"title": "Get Space Page Tree", "readOnlyHint": True},
+)
+async def get_space_page_tree(
+    ctx: Context,
+    space_key: Annotated[
+        str,
+        Field(description="Space key"),
+    ],
+    limit: Annotated[
+        int,
+        Field(
+            description="Max pages to fetch",
+            default=100,
+            ge=1,
+            le=1000,
+        ),
+    ] = 100,
+) -> str:
+    """Get page hierarchy for a Confluence space as a flat list.
+
+    Returns pages with parent_id and depth attributes for token-efficient
+    processing. Filter by depth to focus on relevant sections, or find
+    pages by title. Much more efficient than rendering full ASCII trees.
+
+    Use this to understand space organization before creating/moving pages.
+
+    Args:
+        ctx: The FastMCP context.
+        space_key: Space key identifier.
+        limit: Maximum pages to fetch (start with 100 for faster results).
+
+    Returns:
+        JSON with space_key, total_pages, and pages array containing
+        {id, title, parent_id, position, depth} for each page.
+        Root pages have parent_id: null and depth: 0.
+    """
+    confluence_fetcher = await get_confluence_fetcher(ctx)
+    tree_data = confluence_fetcher.get_space_page_tree(space_key=space_key, limit=limit)
+    return json.dumps(tree_data, indent=2, ensure_ascii=False)
+
+
+@confluence_mcp.tool(
+    tags={"confluence", "read"},
+    annotations={"title": "List Spaces", "readOnlyHint": True},
+)
+async def list_spaces(
+    ctx: Context,
+    limit: Annotated[
+        int,
+        Field(
+            description="Maximum number of spaces to return (default: 25)",
+            default=25,
+            ge=1,
+            le=100,
+        ),
+    ] = 25,
+    start: Annotated[
+        int,
+        Field(
+            description="Pagination start",
+            default=0,
+            ge=0,
+        ),
+    ] = 0,
+) -> str:
+    """List available Confluence spaces with their keys and names.
+
+    Use this to discover what spaces exist before exploring their content
+    or page hierarchies.
+
+    Args:
+        ctx: The FastMCP context.
+        limit: Maximum number of spaces to return.
+        start: Starting index for pagination.
+
+    Returns:
+        JSON string representing a list of spaces with keys and metadata.
+    """
+    confluence_fetcher = await get_confluence_fetcher(ctx)
+    spaces_response = confluence_fetcher.get_spaces(start=start, limit=limit)
+    return json.dumps(spaces_response, indent=2, ensure_ascii=False)
+
+
+@confluence_mcp.tool(
+    tags={"confluence", "write"},
+    annotations={"title": "Move Page Position", "readOnlyHint": False},
+)
+@check_write_access
+async def move_page_position(
+    ctx: Context,
+    page_id: Annotated[
+        str,
+        Field(description="Page ID to move"),
+    ],
+    position: Annotated[
+        str,
+        Field(description="Position: before/after/append"),
+    ],
+    target_id: Annotated[
+        str,
+        Field(description="Target page ID"),
+    ],
+) -> str:
+    """Move a Confluence page to a specific position relative to another page.
+
+    This tool allows precise control over page ordering in the page tree,
+    enabling you to place pages before/after siblings or as children.
+
+    WARNING: Using 'before' or 'after' when target_id is a top-level page
+    will move the page to the space root, which may be hard to find in the UI.
+
+    Args:
+        ctx: The FastMCP context.
+        page_id: ID of the page to move.
+        position: Position relative to target ('before', 'after', or 'append').
+        target_id: ID of the target page for positioning.
+
+    Returns:
+        JSON string indicating success or failure.
+    """
+    confluence_fetcher = await get_confluence_fetcher(ctx)
+    try:
+        result = confluence_fetcher.move_page_position(
+            page_id=page_id,
+            position=position,
+            target_id=target_id,
+        )
+        return json.dumps(
+            {
+                "success": result,
+                "message": f"Successfully moved page {page_id} to position '{position}' relative to {target_id}",
+            },
+            indent=2,
+        )
+    except ValueError as e:
+        return json.dumps({"success": False, "error": str(e)}, indent=2)
+    except Exception as e:
+        logger.error(f"Error moving page {page_id}: {e}", exc_info=True)
+        return json.dumps(
+            {"success": False, "error": f"Failed to move page: {str(e)}"}, indent=2
+        )
 
 
 @confluence_mcp.tool(

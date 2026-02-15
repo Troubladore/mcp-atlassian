@@ -1807,3 +1807,210 @@ class TestPageWidth:
 
             mock_width.assert_called_once_with(page_id)
             assert page.page_width == "full-width"
+
+
+class TestPageHierarchy:
+    """Tests for page hierarchy and navigation methods."""
+
+    @pytest.fixture
+    def pages_mixin(self, confluence_client):
+        """Create a PagesMixin instance for testing."""
+        with patch(
+            "mcp_atlassian.confluence.pages.ConfluenceClient.__init__"
+        ) as mock_init:
+            mock_init.return_value = None
+            mixin = PagesMixin()
+            mixin.confluence = confluence_client.confluence
+            mixin.config = confluence_client.config
+            mixin.preprocessor = confluence_client.preprocessor
+            return mixin
+
+    def test_move_page_position_after(self, pages_mixin):
+        """Test moving a page to position after another page."""
+        page_id = "123"
+        target_id = "456"
+
+        # Mock the session.put call
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        pages_mixin.confluence._session.put = MagicMock(return_value=mock_response)
+
+        result = pages_mixin.move_page_position(
+            page_id=page_id,
+            position="after",
+            target_id=target_id
+        )
+
+        assert result is True
+        pages_mixin.confluence._session.put.assert_called_once()
+        call_args = pages_mixin.confluence._session.put.call_args
+        assert f"/rest/api/content/{page_id}/move/after/{target_id}" in call_args[0][0]
+
+    def test_move_page_position_before(self, pages_mixin):
+        """Test moving a page to position before another page."""
+        page_id = "123"
+        target_id = "456"
+
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        pages_mixin.confluence._session.put = MagicMock(return_value=mock_response)
+
+        result = pages_mixin.move_page_position(
+            page_id=page_id,
+            position="before",
+            target_id=target_id
+        )
+
+        assert result is True
+        assert f"/rest/api/content/{page_id}/move/before/{target_id}" in pages_mixin.confluence._session.put.call_args[0][0]
+
+    def test_move_page_position_append(self, pages_mixin):
+        """Test moving a page as child (append) of another page."""
+        page_id = "123"
+        target_id = "456"
+
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        pages_mixin.confluence._session.put = MagicMock(return_value=mock_response)
+
+        result = pages_mixin.move_page_position(
+            page_id=page_id,
+            position="append",
+            target_id=target_id
+        )
+
+        assert result is True
+        assert f"/rest/api/content/{page_id}/move/append/{target_id}" in pages_mixin.confluence._session.put.call_args[0][0]
+
+    def test_move_page_position_invalid(self, pages_mixin):
+        """Test that invalid position raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid position"):
+            pages_mixin.move_page_position(
+                page_id="123",
+                position="invalid",
+                target_id="456"
+            )
+
+    def test_move_page_position_http_error(self, pages_mixin):
+        """Test handling of HTTP errors during move."""
+        import requests
+
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        mock_response.text = "Page not found"
+        mock_response.raise_for_status.side_effect = requests.HTTPError(response=mock_response)
+
+        pages_mixin.confluence._session.put = MagicMock(return_value=mock_response)
+
+        with pytest.raises(ValueError, match="Failed to move page"):
+            pages_mixin.move_page_position(
+                page_id="123",
+                position="after",
+                target_id="999"
+            )
+
+    def test_get_space_page_tree_empty(self, pages_mixin):
+        """Test get_space_page_tree with no pages."""
+        pages_mixin.confluence.get_all_pages_from_space = MagicMock(return_value=[])
+
+        result = pages_mixin.get_space_page_tree("EMPTY")
+
+        assert isinstance(result, dict)
+        assert result["space_key"] == "EMPTY"
+        assert result["total_pages"] == 0
+        assert result["pages"] == []
+
+    def test_get_space_page_tree_single_root(self, pages_mixin):
+        """Test get_space_page_tree with single root page returns structured JSON."""
+        mock_pages = [
+            {
+                "id": "123",
+                "title": "Root Page",
+                "ancestors": [],
+                "extensions": {"position": 0}
+            }
+        ]
+        pages_mixin.confluence.get_all_pages_from_space = MagicMock(return_value=mock_pages)
+
+        result = pages_mixin.get_space_page_tree("TEST")
+
+        assert isinstance(result, dict)
+        assert result["space_key"] == "TEST"
+        assert result["total_pages"] == 1
+        assert len(result["pages"]) == 1
+        page = result["pages"][0]
+        assert page["id"] == "123"
+        assert page["title"] == "Root Page"
+        assert page["parent_id"] is None
+        assert page["depth"] == 0
+        assert page["position"] == 0
+
+    def test_get_space_page_tree_with_children(self, pages_mixin):
+        """Test get_space_page_tree returns parent_id and depth correctly."""
+        mock_pages = [
+            {
+                "id": "123",
+                "title": "Parent Page",
+                "ancestors": [],
+                "extensions": {"position": 0}
+            },
+            {
+                "id": "456",
+                "title": "Child Page",
+                "ancestors": [{"id": "123"}],
+                "extensions": {"position": 0}
+            }
+        ]
+        pages_mixin.confluence.get_all_pages_from_space = MagicMock(return_value=mock_pages)
+
+        result = pages_mixin.get_space_page_tree("TEST")
+
+        assert result["total_pages"] == 2
+        pages = result["pages"]
+
+        # Find parent and child
+        parent = next(p for p in pages if p["id"] == "123")
+        child = next(p for p in pages if p["id"] == "456")
+
+        # Verify hierarchy
+        assert parent["parent_id"] is None
+        assert parent["depth"] == 0
+        assert child["parent_id"] == "123"
+        assert child["depth"] == 1
+
+        # Verify breadth-first ordering (depth 0 before depth 1)
+        parent_idx = pages.index(parent)
+        child_idx = pages.index(child)
+        assert parent_idx < child_idx
+
+    def test_get_space_page_tree_sorting(self, pages_mixin):
+        """Test that pages are sorted by depth then position."""
+        mock_pages = [
+            {
+                "id": "789",
+                "title": "Third Page",
+                "ancestors": [],
+                "extensions": {"position": 2}
+            },
+            {
+                "id": "123",
+                "title": "First Page",
+                "ancestors": [],
+                "extensions": {"position": 0}
+            },
+            {
+                "id": "456",
+                "title": "Second Page",
+                "ancestors": [],
+                "extensions": {"position": 1}
+            }
+        ]
+        pages_mixin.confluence.get_all_pages_from_space = MagicMock(return_value=mock_pages)
+
+        result = pages_mixin.get_space_page_tree("TEST")
+
+        # Pages should be sorted by depth (all 0), then position (0, 1, 2)
+        pages = result["pages"]
+        assert pages[0]["id"] == "123"  # position 0
+        assert pages[1]["id"] == "456"  # position 1
+        assert pages[2]["id"] == "789"  # position 2

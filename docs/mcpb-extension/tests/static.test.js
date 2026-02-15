@@ -411,6 +411,106 @@ describe("server/index.js", () => {
       "Must remove both MCP and proxy containers on startup"
     );
   });
+
+  it("never exposes delete operations in ENABLED_TOOLS whitelist", () => {
+    // These operations must NEVER appear in READ_TOOLS or WRITE_TOOLS
+    // They should only be listed in the "NEVER exposed" comment
+    const EXPECTED_EXCLUSIONS = [
+      "jira_delete_issue",
+      "confluence_delete_page",
+      "jira_batch_create_issues",
+    ];
+
+    const readToolsMatch = serverJs.match(/const READ_TOOLS = \[([\s\S]*?)\];/);
+    const writeToolsMatch = serverJs.match(/const WRITE_TOOLS = \[([\s\S]*?)\];/);
+
+    const readTools = (readToolsMatch[1].match(/"([^"]+)"/g) || [])
+      .map((s) => s.replace(/"/g, ""));
+    const writeTools = (writeToolsMatch[1].match(/"([^"]+)"/g) || [])
+      .map((s) => s.replace(/"/g, ""));
+
+    const enabledTools = [...readTools, ...writeTools];
+
+    // Verify none of the excluded tools appear in the whitelist
+    const foundExclusions = enabledTools.filter((t) =>
+      EXPECTED_EXCLUSIONS.includes(t)
+    );
+
+    assert.equal(
+      foundExclusions.length,
+      0,
+      `SECURITY: Destructive tools found in ENABLED_TOOLS whitelist: ${foundExclusions.join(", ")}. ` +
+      `These must NEVER be exposed. Remove them immediately!`
+    );
+
+    // Verify the exclusion list in the comment is up to date
+    const exclusionComment = serverJs.match(
+      /\/\/ NEVER exposed, regardless of config:\s*\n\/\/ (.+)/
+    );
+    assert.ok(
+      exclusionComment,
+      "Must have '// NEVER exposed, regardless of config:' comment documenting exclusions"
+    );
+
+    const documentedExclusions = exclusionComment[1]
+      .split(",")
+      .map((s) => s.trim());
+
+    // Verify documented exclusions match expected exclusions
+    const missingFromComment = EXPECTED_EXCLUSIONS.filter(
+      (tool) => !documentedExclusions.includes(tool)
+    );
+    const extraInComment = documentedExclusions.filter(
+      (tool) => !EXPECTED_EXCLUSIONS.includes(tool)
+    );
+
+    assert.equal(
+      missingFromComment.length,
+      0,
+      `Exclusion comment is missing tools: ${missingFromComment.join(", ")}. ` +
+      `Update the comment or the EXPECTED_EXCLUSIONS list in this test.`
+    );
+
+    assert.equal(
+      extraInComment.length,
+      0,
+      `Exclusion comment lists unknown tools: ${extraInComment.join(", ")}. ` +
+      `Either add them to EXPECTED_EXCLUSIONS or remove from comment.`
+    );
+  });
+
+  it("ENABLED_TOOLS whitelist includes all manifest.json tools", () => {
+    // manifest.json declares which tools exist (for discovery/metadata)
+    // server/index.js READ_TOOLS and WRITE_TOOLS control which are actually enabled
+    // These MUST stay in sync or tools will silently disappear at runtime
+    const manifest = JSON.parse(readFile("manifest.json"));
+    const manifestTools = manifest.tools.map((t) => t.name);
+
+    // Extract tool arrays from server/index.js
+    const readToolsMatch = serverJs.match(/const READ_TOOLS = \[([\s\S]*?)\];/);
+    const writeToolsMatch = serverJs.match(/const WRITE_TOOLS = \[([\s\S]*?)\];/);
+
+    assert.ok(readToolsMatch, "Must have READ_TOOLS array in server/index.js");
+    assert.ok(writeToolsMatch, "Must have WRITE_TOOLS array in server/index.js");
+
+    // Parse tool names from arrays (extract quoted strings)
+    const readTools = (readToolsMatch[1].match(/"([^"]+)"/g) || [])
+      .map((s) => s.replace(/"/g, ""));
+    const writeTools = (writeToolsMatch[1].match(/"([^"]+)"/g) || [])
+      .map((s) => s.replace(/"/g, ""));
+
+    const enabledTools = [...readTools, ...writeTools];
+
+    // Check that every manifest tool appears in the whitelist
+    const missingTools = manifestTools.filter((t) => !enabledTools.includes(t));
+
+    assert.equal(
+      missingTools.length,
+      0,
+      `Tools declared in manifest.json but missing from READ_TOOLS/WRITE_TOOLS whitelist: ${missingTools.join(", ")}. ` +
+      `These tools will be silently filtered out at runtime. Add them to server/index.js!`
+    );
+  });
 });
 
 // =============================================================================
@@ -418,6 +518,7 @@ describe("server/index.js", () => {
 // =============================================================================
 describe("manifest.json", () => {
   const manifest = JSON.parse(readFile("manifest.json"));
+  const serverJs = readFile("server/index.js");
 
   it("marks API token as sensitive", () => {
     assert.ok(
@@ -446,6 +547,38 @@ describe("manifest.json", () => {
       manifest.name,
       "eruditis-atlassian",
       "Extension name must be eruditis-atlassian"
+    );
+  });
+
+  it("all manifest tools appear in server/index.js ENABLED_TOOLS whitelist", () => {
+    // manifest.json declares which tools exist (for discovery/metadata)
+    // server/index.js READ_TOOLS and WRITE_TOOLS control which are actually enabled
+    // These MUST stay in sync or tools will silently disappear at runtime
+    const manifestTools = manifest.tools.map((t) => t.name);
+
+    // Extract tool arrays from server/index.js
+    const readToolsMatch = serverJs.match(/const READ_TOOLS = \[([\s\S]*?)\];/);
+    const writeToolsMatch = serverJs.match(/const WRITE_TOOLS = \[([\s\S]*?)\];/);
+
+    assert.ok(readToolsMatch, "Must have READ_TOOLS array in server/index.js");
+    assert.ok(writeToolsMatch, "Must have WRITE_TOOLS array in server/index.js");
+
+    // Parse tool names from arrays (extract quoted strings)
+    const readTools = (readToolsMatch[1].match(/"([^"]+)"/g) || [])
+      .map((s) => s.replace(/"/g, ""));
+    const writeTools = (writeToolsMatch[1].match(/"([^"]+)"/g) || [])
+      .map((s) => s.replace(/"/g, ""));
+
+    const enabledTools = [...readTools, ...writeTools];
+
+    // Check that every manifest tool appears in the whitelist
+    const missingTools = manifestTools.filter((t) => !enabledTools.includes(t));
+
+    assert.equal(
+      missingTools.length,
+      0,
+      `Tools declared in manifest.json but missing from READ_TOOLS/WRITE_TOOLS whitelist: ${missingTools.join(", ")}. ` +
+      `These tools will be silently filtered out at runtime. Add them to server/index.js!`
     );
   });
 });

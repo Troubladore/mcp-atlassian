@@ -78,3 +78,8 @@ playground/
 
 # Security scan results (large JSON files, regenerate as needed)
 security/scans/
+
+# MCPB extension build artifacts
+# Keep only the canonical eruditis-atlassian.mcpb, ignore versioned builds
+docs/mcpb-extension/eruditis-atlassian-*.mcpb
+!docs/mcpb-extension/eruditis-atlassian.mcpb
