@@ -74,6 +74,22 @@ Desktop's restricted PATH environment** to catch issues before users see them.
 node --test tests/*.test.js
 ```
 
+### Test Cleanup
+
+Integration tests clean up containers and networks automatically, but **leave the test proxy image** (`eruditis/atlassian-proxy:test`, ~18MB) to speed up subsequent test runs.
+
+To clean up test images:
+```bash
+docker rmi eruditis/atlassian-proxy:test
+```
+
+Or clean up all test resources at once:
+```bash
+docker rm -f mcpb-test-proxy 2>/dev/null
+docker network rm mcpb-test-net 2>/dev/null
+docker rmi eruditis/atlassian-proxy:test 2>/dev/null
+```
+
 ## Known Pitfalls (Lessons Learned)
 
 These are bugs we've hit and fixed. The test suite catches all of them:
