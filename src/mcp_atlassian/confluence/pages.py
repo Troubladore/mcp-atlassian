@@ -214,6 +214,9 @@ class PagesMixin(ConfluenceClient):
     ) -> bool:
         """Set or remove a single page property via v1 API.
 
+        Uses create (POST) for new properties and update (PUT) for existing ones.
+        The v1 API requires a version number when updating existing properties.
+
         Args:
             page_id: The ID of the page
             property_key: The property key to set
@@ -232,16 +235,33 @@ class PagesMixin(ConfluenceClient):
                     logger.debug(f"Could not delete property '{property_key}': {e}")
                 return True
 
-            # Set/update the property
+            # Check if the property already exists (need version for update)
+            existing_version = None
+            try:
+                existing = self.confluence.get_page_property(page_id, property_key)
+                if existing and isinstance(existing, dict):
+                    existing_version = existing.get("version", {}).get("number")
+            except Exception:
+                # Property doesn't exist yet, that's fine - we'll create it
+                pass
+
             property_data = {
                 "key": property_key,
                 "value": value,
             }
-            self.confluence.set_page_property(page_id, property_data)
+
+            if existing_version is not None:
+                # Property exists - use PUT (update) with incremented version
+                property_data["version"] = {"number": existing_version + 1}
+                self.confluence.update_page_property(page_id, property_data)
+            else:
+                # Property doesn't exist - use POST (create)
+                self.confluence.set_page_property(page_id, property_data)
+
             return True
 
         except Exception as e:
-            logger.debug(
+            logger.warning(
                 f"Error setting property '{property_key}' for page {page_id}: {str(e)}"
             )
             return False

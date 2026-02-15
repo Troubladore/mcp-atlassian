@@ -1413,11 +1413,11 @@ class TestPageEmoji:
         assert result.emoji == "✨"
 
     def test_set_page_emoji_success(self, pages_mixin):
-        """Test successfully setting a page emoji."""
+        """Test successfully setting a page emoji when property doesn't exist yet."""
         page_id = "set_emoji_123"
 
-        # Mock set_page_property for creating new property
-        pages_mixin.confluence.get_page_properties.return_value = {"results": []}
+        # Mock get_page_property to indicate property doesn't exist
+        pages_mixin.confluence.get_page_property.side_effect = Exception("Not found")
         pages_mixin.confluence.set_page_property.return_value = {
             "key": "emoji-title-published"
         }
@@ -1426,7 +1426,7 @@ class TestPageEmoji:
 
         assert result is True
         # Emoji 🚀 has Unicode code point U+1F680 - Confluence expects just the hex string
-        # Both published and draft properties should be set
+        # Both published and draft properties should be set (POST/create since new)
         assert pages_mixin.confluence.set_page_property.call_count == 2
         pages_mixin.confluence.set_page_property.assert_any_call(
             page_id,
@@ -1438,11 +1438,16 @@ class TestPageEmoji:
         )
 
     def test_set_page_emoji_update_existing(self, pages_mixin):
-        """Test updating an existing page emoji."""
+        """Test updating an existing page emoji uses PUT with version."""
         page_id = "update_emoji_123"
 
-        # The v1 API doesn't need to fetch existing properties - it just sets the value
-        pages_mixin.confluence.set_page_property.return_value = {
+        # Mock get_page_property to return existing property with version
+        pages_mixin.confluence.get_page_property.return_value = {
+            "key": "emoji-title-published",
+            "value": "1f4dd",
+            "version": {"number": 2},
+        }
+        pages_mixin.confluence.update_page_property.return_value = {
             "key": "emoji-title-published"
         }
 
@@ -1450,15 +1455,15 @@ class TestPageEmoji:
 
         assert result is True
         # Emoji 🎉 has Unicode code point U+1F389 - Confluence expects just the hex string
-        # Both published and draft properties should be set
-        assert pages_mixin.confluence.set_page_property.call_count == 2
-        pages_mixin.confluence.set_page_property.assert_any_call(
+        # Both published and draft properties should be updated (PUT since existing)
+        assert pages_mixin.confluence.update_page_property.call_count == 2
+        pages_mixin.confluence.update_page_property.assert_any_call(
             page_id,
-            {"key": "emoji-title-published", "value": "1f389"},
+            {"key": "emoji-title-published", "value": "1f389", "version": {"number": 3}},
         )
-        pages_mixin.confluence.set_page_property.assert_any_call(
+        pages_mixin.confluence.update_page_property.assert_any_call(
             page_id,
-            {"key": "emoji-title-draft", "value": "1f389"},
+            {"key": "emoji-title-draft", "value": "1f389", "version": {"number": 3}},
         )
 
     def test_set_page_emoji_remove(self, pages_mixin):
@@ -1515,7 +1520,8 @@ class TestPageEmoji:
         """Test handling failure when setting emoji."""
         page_id = "fail_emoji_123"
 
-        pages_mixin.confluence.get_page_properties.return_value = {"results": []}
+        # Property doesn't exist, and create also fails
+        pages_mixin.confluence.get_page_property.side_effect = Exception("Not found")
         pages_mixin.confluence.set_page_property.side_effect = Exception("API error")
 
         result = pages_mixin._set_page_emoji(page_id, "💥")
@@ -1684,11 +1690,13 @@ class TestPageWidth:
 
             assert result is None
 
-    def test_set_page_width_full_width(self, pages_mixin):
-        """Test setting page to full-width."""
+    def test_set_page_width_full_width_new_property(self, pages_mixin):
+        """Test setting page to full-width when property doesn't exist yet (POST/create)."""
         page_id = "page_set_full_123"
 
-        with patch.object(pages_mixin.confluence, "set_page_property") as mock_set:
+        with patch.object(
+            pages_mixin.confluence, "get_page_property", side_effect=Exception("Not found")
+        ), patch.object(pages_mixin.confluence, "set_page_property") as mock_set:
             result = pages_mixin._set_page_width(page_id, "full-width")
 
             assert mock_set.call_count == 2
@@ -1696,14 +1704,41 @@ class TestPageWidth:
             assert calls[0][0][0] == page_id
             assert calls[0][0][1]["key"] == "content-appearance-published"
             assert calls[0][0][1]["value"] == "full-width"
+            assert "version" not in calls[0][0][1]  # No version for create
             assert calls[1][0][1]["key"] == "content-appearance-draft"
             assert result is True
 
-    def test_set_page_width_fixed_width(self, pages_mixin):
-        """Test setting page to max."""
-        page_id = "page_set_fixed_123"
+    def test_set_page_width_full_width_existing_property(self, pages_mixin):
+        """Test setting page to full-width when property already exists (PUT/update)."""
+        page_id = "page_set_full_existing_123"
 
-        with patch.object(pages_mixin.confluence, "set_page_property") as mock_set:
+        # Simulate existing property with version 3
+        existing_property = {
+            "key": "content-appearance-published",
+            "value": "default",
+            "version": {"number": 3},
+        }
+
+        with patch.object(
+            pages_mixin.confluence, "get_page_property", return_value=existing_property
+        ), patch.object(pages_mixin.confluence, "update_page_property") as mock_update:
+            result = pages_mixin._set_page_width(page_id, "full-width")
+
+            assert mock_update.call_count == 2
+            calls = mock_update.call_args_list
+            assert calls[0][0][0] == page_id
+            assert calls[0][0][1]["key"] == "content-appearance-published"
+            assert calls[0][0][1]["value"] == "full-width"
+            assert calls[0][0][1]["version"] == {"number": 4}  # Incremented
+            assert result is True
+
+    def test_set_page_width_max(self, pages_mixin):
+        """Test setting page to max."""
+        page_id = "page_set_max_123"
+
+        with patch.object(
+            pages_mixin.confluence, "get_page_property", side_effect=Exception("Not found")
+        ), patch.object(pages_mixin.confluence, "set_page_property") as mock_set:
             result = pages_mixin._set_page_width(page_id, "max")
 
             assert mock_set.call_count == 2
@@ -1715,7 +1750,9 @@ class TestPageWidth:
         """Test setting page to default width."""
         page_id = "page_set_default_123"
 
-        with patch.object(pages_mixin.confluence, "set_page_property") as mock_set:
+        with patch.object(
+            pages_mixin.confluence, "get_page_property", side_effect=Exception("Not found")
+        ), patch.object(pages_mixin.confluence, "set_page_property") as mock_set:
             result = pages_mixin._set_page_width(page_id, "default")
 
             assert mock_set.call_count == 2
