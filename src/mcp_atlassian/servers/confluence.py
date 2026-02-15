@@ -386,30 +386,34 @@ async def get_space_page_tree(
     limit: Annotated[
         int,
         Field(
-            description="Maximum number of pages to fetch (default: 500)",
-            default=500,
+            description="Maximum number of pages to fetch (default: 100, increase if needed)",
+            default=100,
             ge=1,
             le=1000,
         ),
-    ] = 500,
+    ] = 100,
 ) -> str:
-    """Get a hierarchical ASCII tree view of all pages in a Confluence space.
+    """Get page hierarchy for a Confluence space as a flat list.
 
-    This tool provides a strategic view of the entire space structure,
-    showing page hierarchy, titles, and IDs. Essential for understanding
-    the overall organization before creating or moving pages.
+    Returns pages with parent_id and depth attributes for token-efficient
+    processing. Filter by depth to focus on relevant sections, or find
+    pages by title. Much more efficient than rendering full ASCII trees.
+
+    Use this to understand space organization before creating/moving pages.
 
     Args:
         ctx: The FastMCP context.
         space_key: Space key identifier.
-        limit: Maximum number of pages to fetch.
+        limit: Maximum pages to fetch (start with 100 for faster results).
 
     Returns:
-        ASCII tree representation of the page hierarchy.
+        JSON with space_key, total_pages, and pages array containing
+        {id, title, parent_id, position, depth} for each page.
+        Root pages have parent_id: null and depth: 0.
     """
     confluence_fetcher = await get_confluence_fetcher(ctx)
-    tree = confluence_fetcher.get_space_page_tree(space_key=space_key, limit=limit)
-    return tree
+    tree_data = confluence_fetcher.get_space_page_tree(space_key=space_key, limit=limit)
+    return json.dumps(tree_data, indent=2, ensure_ascii=False)
 
 
 @confluence_mcp.tool(

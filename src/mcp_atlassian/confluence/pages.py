@@ -727,18 +727,23 @@ class PagesMixin(ConfluenceClient):
         self,
         space_key: str,
         limit: int = 500,
-    ) -> str:
+    ) -> dict:
         """Get hierarchical page tree for a space.
 
-        Fetches all pages in a space and reconstructs the hierarchy
-        based on parent relationships and position attributes.
+        Returns a flat list of pages with parent_id and position attributes,
+        allowing the AI to build custom views or filter as needed. This is
+        more token-efficient than ASCII art and easier to process.
 
         Args:
             space_key: The key of the space
             limit: Maximum number of pages to fetch (default: 500)
 
         Returns:
-            ASCII tree representation of the page hierarchy
+            Dictionary with:
+            - space_key: The space key
+            - total_pages: Total number of pages in the response
+            - pages: List of dicts with id, title, parent_id, position, depth
+            - Note: parent_id is None for root pages
 
         Raises:
             Exception: If there is an error fetching pages
@@ -753,12 +758,14 @@ class PagesMixin(ConfluenceClient):
             )
 
             if not pages:
-                return f"Space '{space_key}' (no pages found)"
+                return {
+                    "space_key": space_key,
+                    "total_pages": 0,
+                    "pages": []
+                }
 
-            # Build lookup maps
-            pages_by_id = {}
-            children_by_parent = {}
-            root_pages = []
+            # Build flat list with parent_id and depth
+            result_pages = []
 
             for page in pages:
                 page_id = page.get("id")
@@ -767,73 +774,38 @@ class PagesMixin(ConfluenceClient):
                 # Extract position from extensions (v1 API format)
                 position = page.get("extensions", {}).get("position")
 
-                pages_by_id[page_id] = {
-                    "id": page_id,
-                    "title": title,
-                    "position": position,
-                }
-
-                # Determine parent
+                # Determine parent and depth from ancestors
                 ancestors = page.get("ancestors", [])
                 if ancestors:
-                    # Parent is the last ancestor
                     parent_id = ancestors[-1].get("id")
-                    if parent_id not in children_by_parent:
-                        children_by_parent[parent_id] = []
-                    children_by_parent[parent_id].append(page_id)
+                    depth = len(ancestors)
                 else:
-                    # Root page (no ancestors)
-                    root_pages.append(page_id)
+                    parent_id = None
+                    depth = 0
 
-            # Sort children by position (if available)
-            def sort_by_position(page_ids):
-                pages_with_pos = []
-                pages_without_pos = []
-                for pid in page_ids:
-                    pos = pages_by_id[pid]["position"]
-                    if pos is not None:
-                        pages_with_pos.append((pos, pid))
-                    else:
-                        pages_without_pos.append(pid)
-                # Sort positioned pages numerically, then alphabetically for unpositioned
-                pages_with_pos.sort()
-                pages_without_pos.sort(key=lambda pid: pages_by_id[pid]["title"])
-                return [pid for _, pid in pages_with_pos] + pages_without_pos
+                result_pages.append({
+                    "id": page_id,
+                    "title": title,
+                    "parent_id": parent_id,
+                    "position": position,
+                    "depth": depth,
+                })
 
-            # Sort root pages and all children
-            root_pages = sort_by_position(root_pages)
-            for parent_id in children_by_parent:
-                children_by_parent[parent_id] = sort_by_position(children_by_parent[parent_id])
+            # Sort by depth first (breadth-first), then by position
+            # Note: position can be 0 (valid), so check for None explicitly
+            result_pages.sort(
+                key=lambda p: (
+                    p["depth"],
+                    p["position"] if p["position"] is not None else 999999,
+                    p["title"]
+                )
+            )
 
-            # Build ASCII tree
-            def build_tree(page_ids, prefix=""):
-                lines = []
-                for i, page_id in enumerate(page_ids):
-                    is_last = (i == len(page_ids) - 1)
-                    page_info = pages_by_id[page_id]
-
-                    # Build the tree connector
-                    connector = "+-- " if is_last else "|-- "
-                    line = prefix + connector + f"{page_info['title']} (ID: {page_id})"
-                    lines.append(line)
-
-                    # Recursively add children
-                    if page_id in children_by_parent:
-                        # Extend prefix for child lines
-                        child_prefix = prefix + ("    " if is_last else "|   ")
-                        child_lines = build_tree(
-                            children_by_parent[page_id],
-                            child_prefix
-                        )
-                        lines.extend(child_lines)
-
-                return lines
-
-            # Generate the tree
-            tree_lines = [f"Space: {space_key}", ""]
-            tree_lines.extend(build_tree(root_pages))
-
-            return "\n".join(tree_lines)
+            return {
+                "space_key": space_key,
+                "total_pages": len(result_pages),
+                "pages": result_pages
+            }
 
         except Exception as e:
             logger.error(f"Error fetching page tree for space '{space_key}': {e}")

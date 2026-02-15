@@ -1915,11 +1915,13 @@ class TestPageHierarchy:
 
         result = pages_mixin.get_space_page_tree("EMPTY")
 
-        assert "EMPTY" in result
-        assert "no pages found" in result
+        assert isinstance(result, dict)
+        assert result["space_key"] == "EMPTY"
+        assert result["total_pages"] == 0
+        assert result["pages"] == []
 
     def test_get_space_page_tree_single_root(self, pages_mixin):
-        """Test get_space_page_tree with single root page."""
+        """Test get_space_page_tree with single root page returns structured JSON."""
         mock_pages = [
             {
                 "id": "123",
@@ -1932,12 +1934,19 @@ class TestPageHierarchy:
 
         result = pages_mixin.get_space_page_tree("TEST")
 
-        assert "Space: TEST" in result
-        assert "Root Page (ID: 123)" in result
-        assert "+--" in result
+        assert isinstance(result, dict)
+        assert result["space_key"] == "TEST"
+        assert result["total_pages"] == 1
+        assert len(result["pages"]) == 1
+        page = result["pages"][0]
+        assert page["id"] == "123"
+        assert page["title"] == "Root Page"
+        assert page["parent_id"] is None
+        assert page["depth"] == 0
+        assert page["position"] == 0
 
     def test_get_space_page_tree_with_children(self, pages_mixin):
-        """Test get_space_page_tree with parent-child hierarchy."""
+        """Test get_space_page_tree returns parent_id and depth correctly."""
         mock_pages = [
             {
                 "id": "123",
@@ -1956,13 +1965,26 @@ class TestPageHierarchy:
 
         result = pages_mixin.get_space_page_tree("TEST")
 
-        assert "Parent Page (ID: 123)" in result
-        assert "Child Page (ID: 456)" in result
-        # Child should appear after parent in the tree
-        assert result.index("Parent") < result.index("Child")
+        assert result["total_pages"] == 2
+        pages = result["pages"]
+
+        # Find parent and child
+        parent = next(p for p in pages if p["id"] == "123")
+        child = next(p for p in pages if p["id"] == "456")
+
+        # Verify hierarchy
+        assert parent["parent_id"] is None
+        assert parent["depth"] == 0
+        assert child["parent_id"] == "123"
+        assert child["depth"] == 1
+
+        # Verify breadth-first ordering (depth 0 before depth 1)
+        parent_idx = pages.index(parent)
+        child_idx = pages.index(child)
+        assert parent_idx < child_idx
 
     def test_get_space_page_tree_sorting(self, pages_mixin):
-        """Test that pages are sorted by position."""
+        """Test that pages are sorted by depth then position."""
         mock_pages = [
             {
                 "id": "789",
@@ -1987,8 +2009,8 @@ class TestPageHierarchy:
 
         result = pages_mixin.get_space_page_tree("TEST")
 
-        # Verify order by checking positions in result string
-        first_idx = result.index("First Page")
-        second_idx = result.index("Second Page")
-        third_idx = result.index("Third Page")
-        assert first_idx < second_idx < third_idx
+        # Pages should be sorted by depth (all 0), then position (0, 1, 2)
+        pages = result["pages"]
+        assert pages[0]["id"] == "123"  # position 0
+        assert pages[1]["id"] == "456"  # position 1
+        assert pages[2]["id"] == "789"  # position 2
