@@ -25,8 +25,10 @@ MCP Atlassian provides tools for interacting with Jira and Confluence.
     |------|-------------|
     | `confluence_search` | Search content using CQL |
     | `confluence_get_page` | Get content of a specific page |
+    | `confluence_get_space_page_tree` | Get hierarchical tree of space |
     | `confluence_create_page` | Create a new page |
     | `confluence_update_page` | Update an existing page |
+    | `confluence_move_page_position` | Move page before/after/under target |
   </Card>
 </CardGroup>
 
@@ -37,10 +39,12 @@ MCP Atlassian provides tools for interacting with Jira and Confluence.
 | **Read** | `jira_search` | `confluence_search` |
 | | `jira_get_issue` | `confluence_get_page` |
 | | `jira_get_all_projects` | `confluence_get_page_children` |
-| | `jira_get_project_issues` | `confluence_get_comments` |
-| | `jira_get_worklog` | `confluence_get_labels` |
-| | `jira_get_transitions` | `confluence_search_user` |
-| | `jira_search_fields` | |
+| | `jira_get_project_issues` | `confluence_get_page_ancestors` |
+| | `jira_get_worklog` | `confluence_get_comments` |
+| | `jira_get_transitions` | `confluence_get_labels` |
+| | `jira_search_fields` | `confluence_list_spaces` |
+| | | `confluence_get_space_page_tree` |
+| | | `confluence_search_user` |
 | | `jira_get_agile_boards` | |
 | | `jira_get_board_issues` | |
 | | `jira_get_sprints_from_board` | |
@@ -53,8 +57,9 @@ MCP Atlassian provides tools for interacting with Jira and Confluence.
 | **Write** | `jira_create_issue` | `confluence_create_page` |
 | | `jira_update_issue` | `confluence_update_page` |
 | | `jira_delete_issue` | `confluence_delete_page` |
-| | `jira_batch_create_issues` | `confluence_add_label` |
-| | `jira_add_comment` | `confluence_add_comment` |
+| | `jira_batch_create_issues` | `confluence_move_page_position` |
+| | `jira_add_comment` | `confluence_add_label` |
+| | | `confluence_add_comment` |
 | | `jira_transition_issue` | |
 | | `jira_add_worklog` | |
 | | `jira_link_to_epic` | |
@@ -92,3 +97,58 @@ READ_ONLY_MODE=true
 ```
 
 When enabled, only read operations are available regardless of `ENABLED_TOOLS` setting.
+
+## Confluence Page Hierarchy Navigation
+
+Confluence pages are organized in a hierarchical tree structure. These tools help you discover, visualize, and manipulate the page hierarchy.
+
+### Discovery and Visualization
+
+**`confluence_list_spaces`**
+- Lists all accessible Confluence spaces
+- Returns space keys and names for discovery
+- Supports pagination with `limit` and `start` parameters
+- Use this first to find which spaces exist
+
+**`confluence_get_space_page_tree`**
+- Returns hierarchical ASCII tree view of all pages in a space
+- Shows page titles, IDs, and nesting structure
+- Sorts pages by position attribute when available
+- Essential for understanding space organization before creating/moving pages
+
+Example output:
+```
+Space: DOCS
+
++-- Getting Started (ID: 123456)
+|   +-- Installation (ID: 123457)
+|   +-- Quick Start (ID: 123458)
++-- User Guide (ID: 123459)
+    +-- Basic Features (ID: 123460)
+    +-- Advanced Features (ID: 123461)
+```
+
+**`confluence_get_page_ancestors`**
+- Returns breadcrumb trail from a page to the space root
+- Shows all parent pages in hierarchical order (immediate parent first)
+- Helps understand where a specific page is located
+
+### Page Positioning
+
+**`confluence_move_page_position`**
+- Moves a page to a specific position relative to another page
+- Three positioning modes:
+  - `before`: Place as sibling immediately before the target page
+  - `after`: Place as sibling immediately after the target page
+  - `append`: Place as child of the target page
+- Requires `page_id`, `position`, and `target_id` parameters
+
+**Warning:** Using `before` or `after` when the target is a top-level page will move the page to the space root, which may be difficult to find in the UI.
+
+### Typical Workflow
+
+1. **Discover spaces:** Use `confluence_list_spaces` to see available spaces
+2. **Visualize structure:** Use `confluence_get_space_page_tree` to see the full hierarchy
+3. **Create page:** Use `confluence_create_page` with optional `parent_id`
+4. **Position precisely:** Use `confluence_move_page_position` to place it before/after siblings
+5. **Verify location:** Use `confluence_get_page_ancestors` to confirm placement
