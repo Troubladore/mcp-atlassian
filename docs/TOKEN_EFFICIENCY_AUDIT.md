@@ -140,13 +140,30 @@ get_content(identifier="search term")  # Falls back to search
 ❌ **No auto-correction** - Exact matches required
 ❌ **Verbose field names** - `spaces_filter` could be `spaces`
 
+## Division of Responsibility
+
+**MCP Layer (mcp-atlassian):**
+- Thin, helpful data access
+- Auto-parse URLs to extract page_id/space_key
+- Auto-suggest fixes for typos (fuzzy match space_keys)
+- Return partial results when possible
+- Clear error messages with suggestions
+- Minimal token footprint (<10 words per parameter)
+
+**Skill Layer (.claude/skills/confluence-navigation):**
+- Eruditis-specific conventions ("Eruditis" is default space)
+- Progressive disclosure (start with 50 pages, drill down)
+- Workflow intelligence (discover → create → position)
+- Company naming patterns
+
 ## Immediate Actions (This Session)
 
-1. Create PARAMETER_DESCRIPTION_STYLE_GUIDE.md
-2. Reduce all parameter descriptions to <10 words each
-3. Add URL parsing to get_page
-4. Add auto-suggestion for invalid space_keys
-5. Return partial results when possible
+1. ✅ Create PARAMETER_DESCRIPTION_STYLE_GUIDE.md
+2. ✅ Create confluence-navigation skill
+3. TODO: Reduce all Confluence parameter descriptions to <10 words
+4. TODO: Add URL auto-parsing to confluence_get_page
+5. TODO: Add fuzzy space_key matching with suggestions
+6. TODO: Return partial results instead of hard errors
 
 ## Long-Term Refactoring (Future PR)
 
