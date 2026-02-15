@@ -63,8 +63,10 @@ and tmpfs mount configuration. **21 tests, runs in <1 second.**
 node --test tests/integration.test.js
 ```
 
-Builds the proxy image, starts it with full security hardening, and runs an
-end-to-end MCP initialize handshake through the proxy. **7 tests, ~20 seconds.**
+Builds the proxy image, starts it with full security hardening, runs an
+end-to-end MCP initialize handshake through the proxy, and **simulates Claude
+Desktop's restricted PATH environment** to catch issues before users see them.
+**8 tests, ~20 seconds.**
 
 ### Run Both
 
@@ -94,6 +96,13 @@ These are bugs we've hit and fixed. The test suite catches all of them:
 
 5. **GHCR requires a classic PAT.** Fine-grained GitHub tokens don't support
    the `write:packages` scope. You must use a classic Personal Access Token.
+
+6. **Claude Desktop PATH is different from system PATH.** Claude Desktop's
+   built-in Node.js on Windows has a restricted PATH that may not include
+   Docker. The integration test suite now simulates this environment with a
+   restricted PATH to catch issues at design time. Use top-level try/catch
+   and force stderr flush (fsyncSync) to ensure diagnostic output appears
+   even when initialization fails.
 
 ## How to Build and Release
 
