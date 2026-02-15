@@ -202,8 +202,9 @@ class TestProxyConfigurationEnhanced(BaseAuthTest):
 
         # Verify NO_PROXY is set in environment
         assert os.environ["NO_PROXY"] == "*.internal.com,localhost,127.0.0.1"
-        # Check if domain is in the no_proxy list (split by comma)
-        assert "internal.com" in config.no_proxy or "*.internal.com" in config.no_proxy.split(",")
+        # Check if domain is in the no_proxy list using list membership (not substring)
+        no_proxy_list = [item.strip() for item in config.no_proxy.split(",")]
+        assert "*.internal.com" in no_proxy_list or "internal.com" in no_proxy_list
 
     @pytest.mark.integration
     def test_proxy_error_handling(self, monkeypatch):
