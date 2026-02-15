@@ -478,7 +478,7 @@ async def create_page(
     page_width: Annotated[
         str | None,
         Field(
-            description="(Optional) ONLY 'full-width' OR 'fixed-width'. Use 'full-width' for wide pages (spans browser). Use 'fixed-width' for narrow centered pages. Omit for default.",
+            description="(Optional) Page width (maps to UI 'Adjust width' menu): 'default' = Narrow, 'full-width' = Wide, 'fixed-width' = Max. Most pages use 'default'.",
             default=None,
         ),
     ] = None,
@@ -494,7 +494,7 @@ async def create_page(
         content_format: The format of the content ('markdown', 'wiki', or 'storage').
         enable_heading_anchors: Whether to enable heading anchors (markdown only).
         emoji: Optional page title emoji (icon shown in navigation).
-        page_width: Optional page layout. Use 'full-width' for wide pages, 'fixed-width' for narrow/centered pages.
+        page_width: Optional page layout ('full-width', 'fixed-width', or 'default').
 
     Returns:
         JSON string representing the created page object.
@@ -589,7 +589,7 @@ async def update_page(
     page_width: Annotated[
         str | None,
         Field(
-            description="(Optional) Page layout: 'full-width' (wide) or 'fixed-width' (narrow/centered). Omit to keep current. Empty string to reset.",
+            description="(Optional) Page width (maps to UI 'Adjust width' menu): 'default' = Narrow, 'full-width' = Wide, 'fixed-width' = Max. Most pages use 'default'.",
             default=None,
         ),
     ] = None,
@@ -607,7 +607,7 @@ async def update_page(
         content_format: The format of the content ('markdown', 'wiki', or 'storage').
         enable_heading_anchors: Whether to enable heading anchors (markdown only).
         emoji: Optional page title emoji (icon shown in navigation).
-        page_width: Optional page layout. Use 'full-width' for wide pages, 'fixed-width' for narrow/centered pages.
+        page_width: Optional page layout ('full-width', 'fixed-width', or 'default').
 
     Returns:
         JSON string representing the updated page object.

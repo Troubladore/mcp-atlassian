@@ -1711,6 +1711,19 @@ class TestPageWidth:
             assert calls[0][0][1]["value"] == "fixed-width"
             assert result is True
 
+    def test_set_page_width_default(self, pages_mixin):
+        """Test setting page to default width."""
+        page_id = "page_set_default_123"
+
+        with patch.object(pages_mixin.confluence, "set_page_property") as mock_set:
+            result = pages_mixin._set_page_width(page_id, "default")
+
+            assert mock_set.call_count == 2
+            calls = mock_set.call_args_list
+            assert calls[0][0][1]["value"] == "default"
+            assert calls[1][0][1]["value"] == "default"
+            assert result is True
+
     def test_set_page_width_invalid_value(self, pages_mixin):
         """Test that invalid width values are rejected."""
         page_id = "page_invalid_width_123"

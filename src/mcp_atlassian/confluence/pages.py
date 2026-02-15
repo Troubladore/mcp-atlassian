@@ -329,22 +329,22 @@ class PagesMixin(ConfluenceClient):
     def _set_page_width(self, page_id: str, width: str | None) -> bool:
         """Set the page layout width.
 
-        The page width (fixed-width vs full-width) is stored as content properties.
+        The page width is stored as content properties.
         Both 'content-appearance-draft' and 'content-appearance-published' are set
         to ensure the width appears in both view and edit modes.
 
         Args:
             page_id: The ID of the page
-            width: The width to set ('full-width' or 'fixed-width'), or None to use default
+            width: The width to set ('full-width', 'fixed-width', or 'default'), or None to remove
 
         Returns:
             True if the operation succeeded, False otherwise
         """
         try:
             # Validate width value
-            if width is not None and width not in ["full-width", "fixed-width"]:
+            if width is not None and width not in ["full-width", "fixed-width", "default"]:
                 logger.warning(
-                    f"Invalid page width '{width}'. Must be 'full-width' or 'fixed-width'"
+                    f"Invalid page width '{width}'. Must be 'full-width', 'fixed-width', or 'default'"
                 )
                 return False
 
@@ -533,7 +533,7 @@ class PagesMixin(ConfluenceClient):
             enable_heading_anchors: Whether to enable automatic heading anchor generation (default: False, keyword-only)
             content_representation: Content format when is_markdown=False ('wiki' or 'storage', keyword-only)
             emoji: Optional emoji character for the page title icon (keyword-only)
-            page_width: Optional page layout width ('full-width' or 'fixed-width', keyword-only)
+            page_width: Optional page layout width ('full-width', 'fixed-width', or 'default', keyword-only)
 
         Returns:
             ConfluencePage model containing the new page's data
@@ -630,7 +630,7 @@ class PagesMixin(ConfluenceClient):
             enable_heading_anchors: Whether to enable automatic heading anchor generation (default: False, keyword-only)
             content_representation: Content format when is_markdown=False ('wiki' or 'storage', keyword-only)
             emoji: Optional emoji character for the page title icon (keyword-only). Pass empty string to remove emoji.
-            page_width: Optional page layout width ('full-width' or 'fixed-width', keyword-only). Pass empty string to reset to default.
+            page_width: Optional page layout width ('full-width', 'fixed-width', or 'default', keyword-only). Pass empty string to reset to default.
 
         Returns:
             ConfluencePage model containing the updated page's data
