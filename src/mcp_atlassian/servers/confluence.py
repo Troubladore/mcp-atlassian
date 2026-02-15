@@ -478,7 +478,7 @@ async def create_page(
     page_width: Annotated[
         str | None,
         Field(
-            description="(Optional) Page width (UI 'Adjust width'): 'default' = Narrow, 'full-width' = Wide, 'max' = Max. Use 'default' for standard pages.",
+            description="Page width: 'default'=Narrow, 'full-width'=Wide, 'max'=Max",
             default=None,
         ),
     ] = None,
@@ -589,7 +589,7 @@ async def update_page(
     page_width: Annotated[
         str | None,
         Field(
-            description="(Optional) Page width (UI 'Adjust width'): 'default' = Narrow, 'full-width' = Wide, 'max' = Max. Use 'default' for standard pages.",
+            description="Page width: 'default'=Narrow, 'full-width'=Wide, 'max'=Max",
             default=None,
         ),
     ] = None,
