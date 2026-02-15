@@ -47,7 +47,7 @@ log(`Script: ${__dirname}`);
 log(`========================================`);
 
 // --- Configuration ---
-const IMAGE = "ghcr.io/troubladore/mcp-atlassian:v0.11.15";
+const IMAGE = "ghcr.io/troubladore/mcp-atlassian:v0.11.16";
 const PROXY_IMAGE = "eruditis/atlassian-proxy:latest";
 const PROXY_CONTAINER_NAME = "eruditis-atlassian-proxy";
 const MCP_CONTAINER_NAME = "eruditis-atlassian-mcp";
