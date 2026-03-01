@@ -59,6 +59,29 @@ gh issue create \
   --body "Issue body here"
 ```
 
+## Upstream Alignment
+
+Our fork is rebased on upstream `main`, keeping fork-specific commits as a clean stack on top. See `docs/UPSTREAM_CONTRIBUTIONS.md` for the full workflow.
+
+**Quick reference:**
+```bash
+# Sync main with upstream
+git checkout main && git pull upstream main && git push origin main
+
+# Rebase fork onto latest upstream
+git checkout eruditis/main && git rebase main
+
+# Check status of our upstream PRs
+for pr in 1087 1088 1090 1091 1092; do
+  echo -n "PR #$pr: "; gh pr view $pr --repo sooperset/mcp-atlassian --json state -q '.state'
+done
+```
+
+**Auth context for upstream PRs:** The fine-grained PAT (`github_pat_`) cannot create cross-repo PRs. Switch to the classic PAT first:
+```bash
+gh auth login    # Select github.com, paste the classic token (ghp_...)
+```
+
 ## Docker
 
 Images are pushed to GHCR under `ghcr.io/troubladore/mcp-atlassian`.
