@@ -717,6 +717,92 @@ class PagesMixin(ConfluenceClient):
             logger.error(f"Error updating page {page_id}: {str(e)}")
             raise Exception(f"Failed to update page {page_id}: {str(e)}") from e
 
+    def get_space_page_tree(
+        self,
+        space_key: str,
+        limit: int = 500,
+    ) -> dict:
+        """Get hierarchical page tree for a space.
+
+        Returns a flat list of pages with parent_id and position attributes,
+        allowing the AI to build custom views or filter as needed. This is
+        more token-efficient than ASCII art and easier to process.
+
+        Args:
+            space_key: The key of the space
+            limit: Maximum number of pages to fetch (default: 500)
+
+        Returns:
+            Dictionary with:
+            - space_key: The space key
+            - total_pages: Total number of pages in the response
+            - pages: List of dicts with id, title, parent_id, position, depth
+            - Note: parent_id is None for root pages
+
+        Raises:
+            Exception: If there is an error fetching pages
+        """
+        try:
+            # Fetch all pages from the space
+            pages = self.confluence.get_all_pages_from_space(
+                space=space_key,
+                start=0,
+                limit=limit,
+                expand="ancestors,metadata.properties.position",
+            )
+
+            if not pages:
+                return {"space_key": space_key, "total_pages": 0, "pages": []}
+
+            # Build flat list with parent_id and depth
+            result_pages = []
+
+            for page in pages:
+                page_id = page.get("id")
+                title = page.get("title", "Untitled")
+
+                # Extract position from extensions (v1 API format)
+                position = page.get("extensions", {}).get("position")
+
+                # Determine parent and depth from ancestors
+                ancestors = page.get("ancestors", [])
+                if ancestors:
+                    parent_id = ancestors[-1].get("id")
+                    depth = len(ancestors)
+                else:
+                    parent_id = None
+                    depth = 0
+
+                result_pages.append(
+                    {
+                        "id": page_id,
+                        "title": title,
+                        "parent_id": parent_id,
+                        "position": position,
+                        "depth": depth,
+                    }
+                )
+
+            # Sort by depth first (breadth-first), then by position
+            # Note: position can be 0 (valid), so check for None explicitly
+            result_pages.sort(
+                key=lambda p: (
+                    p["depth"],
+                    p["position"] if p["position"] is not None else 999999,
+                    p["title"],
+                )
+            )
+
+            return {
+                "space_key": space_key,
+                "total_pages": len(result_pages),
+                "pages": result_pages,
+            }
+
+        except Exception as e:
+            logger.error(f"Error fetching page tree for space '{space_key}': {e}")
+            raise Exception(f"Failed to fetch page tree: {e}") from e
+
     def get_page_children(
         self,
         page_id: str,
