@@ -8,7 +8,9 @@ This is a fork of `sooperset/mcp-atlassian`. Remotes:
 - `origin` = `Troubladore/mcp-atlassian` (our fork)
 - `upstream` = `sooperset/mcp-atlassian` (upstream)
 
-Our development branch is `eruditis/main`. Feature branches merge into `eruditis/main` via PR. The `main` branch is a clean mirror of upstream.
+Our development branch is `eruditis/main`. The `main` branch is a clean mirror of upstream.
+
+**NEVER commit directly to `eruditis/main` or `main`.** Always create a feature branch and merge via PR — no exceptions, even for "quick" changes like version bumps or doc fixes.
 
 ## Developer Setup
 
