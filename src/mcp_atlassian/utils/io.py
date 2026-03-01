@@ -20,6 +20,19 @@ def is_read_only_mode() -> bool:
     return is_env_extended_truthy("READ_ONLY_MODE", "false")
 
 
+def is_delete_tools_allowed() -> bool:
+    """Check if delete tools are allowed.
+
+    When disabled (default), tools tagged with 'delete' are filtered out
+    even when read-only mode is off. This provides defense-in-depth
+    against accidental destructive operations.
+
+    Returns:
+        True if delete tools are allowed, False otherwise
+    """
+    return is_env_extended_truthy("ALLOW_DELETE_TOOLS", "false")
+
+
 def validate_safe_path(
     path: str | os.PathLike[str],
     base_dir: str | os.PathLike[str] | None = None,

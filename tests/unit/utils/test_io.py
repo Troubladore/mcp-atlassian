@@ -6,7 +6,11 @@ from unittest.mock import patch
 
 import pytest
 
-from mcp_atlassian.utils.io import is_read_only_mode, validate_safe_path
+from mcp_atlassian.utils.io import (
+    is_delete_tools_allowed,
+    is_read_only_mode,
+    validate_safe_path,
+)
 
 
 def test_is_read_only_mode_default():
@@ -84,6 +88,33 @@ def test_is_read_only_mode_false():
 
         # Assert
         assert result is False
+
+
+# --- is_delete_tools_allowed tests ---
+
+
+class TestIsDeleteToolsAllowed:
+    """Tests for is_delete_tools_allowed() env var."""
+
+    def test_default_is_false(self, monkeypatch):
+        monkeypatch.delenv("ALLOW_DELETE_TOOLS", raising=False)
+        assert is_delete_tools_allowed() is False
+
+    def test_explicit_false(self, monkeypatch):
+        monkeypatch.setenv("ALLOW_DELETE_TOOLS", "false")
+        assert is_delete_tools_allowed() is False
+
+    def test_explicit_true(self, monkeypatch):
+        monkeypatch.setenv("ALLOW_DELETE_TOOLS", "true")
+        assert is_delete_tools_allowed() is True
+
+    def test_case_insensitive(self, monkeypatch):
+        monkeypatch.setenv("ALLOW_DELETE_TOOLS", "TRUE")
+        assert is_delete_tools_allowed() is True
+
+    def test_yes_is_truthy(self, monkeypatch):
+        monkeypatch.setenv("ALLOW_DELETE_TOOLS", "yes")
+        assert is_delete_tools_allowed() is True
 
 
 # --- validate_safe_path tests ---
