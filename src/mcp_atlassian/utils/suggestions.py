@@ -54,3 +54,27 @@ def fuzzy_match(
                     break
 
     return results[:max_results]
+
+
+def format_suggestions(
+    error_msg: str,
+    suggestions: list[str],
+    hint: str | None = None,
+) -> dict[str, object]:
+    """Build a structured error response with suggestions.
+
+    Args:
+        error_msg: The primary error message.
+        suggestions: List of suggested corrections.
+        hint: Optional hint for the user.
+
+    Returns:
+        Dict with 'error', 'suggestions', and optionally 'hint'.
+    """
+    result: dict[str, object] = {
+        "error": error_msg,
+        "suggestions": suggestions,
+    }
+    if hint:
+        result["hint"] = hint
+    return result

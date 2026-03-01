@@ -1,6 +1,6 @@
 """Tests for suggestion/fuzzy matching utilities."""
 
-from mcp_atlassian.utils.suggestions import fuzzy_match
+from mcp_atlassian.utils.suggestions import format_suggestions, fuzzy_match
 
 
 class TestFuzzyMatch:
@@ -43,3 +43,27 @@ class TestFuzzyMatch:
         """Substring of a candidate is found."""
         result = fuzzy_match("pages", ["confluence_pages", "jira_issues"])
         assert "confluence_pages" in result
+
+
+class TestFormatSuggestions:
+    """Tests for format_suggestions()."""
+
+    def test_with_suggestions_and_hint(self):
+        result = format_suggestions(
+            "Space 'erud' not found",
+            ["ERUDITIS", "ERUDITISARCHIVE"],
+            hint="Space keys are case-sensitive uppercase",
+        )
+        assert result["error"] == "Space 'erud' not found"
+        assert result["suggestions"] == ["ERUDITIS", "ERUDITISARCHIVE"]
+        assert result["hint"] == "Space keys are case-sensitive uppercase"
+
+    def test_without_hint(self):
+        result = format_suggestions("Not found", ["A", "B"])
+        assert "hint" not in result
+        assert result["suggestions"] == ["A", "B"]
+
+    def test_empty_suggestions(self):
+        result = format_suggestions("Not found", [])
+        assert result["suggestions"] == []
+        assert "hint" not in result
