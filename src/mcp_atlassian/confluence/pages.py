@@ -102,8 +102,9 @@ class PagesMixin(ConfluenceClient):
 
             page_content = processed_markdown if convert_to_markdown else processed_html
 
-            # Fetch page emoji from content properties
+            # Fetch page emoji and width from content properties
             emoji = self._get_page_emoji(page_id)
+            page_width = self._get_page_width(page_id)
 
             return ConfluencePage.from_api_response(
                 page,
@@ -113,6 +114,7 @@ class PagesMixin(ConfluenceClient):
                 content_format=("storage" if not convert_to_markdown else "markdown"),
                 is_cloud=self.config.is_cloud,
                 emoji=emoji,
+                page_width=page_width,
             )
         except HTTPError:
             raise  # let decorator handle auth errors
@@ -200,6 +202,9 @@ class PagesMixin(ConfluenceClient):
     ) -> bool:
         """Set or remove a single page property via v1 API.
 
+        Uses create (POST) for new properties and update (PUT) for existing ones.
+        The v1 API requires a version number when updating existing properties.
+
         Args:
             page_id: The ID of the page
             property_key: The property key to set
@@ -218,16 +223,33 @@ class PagesMixin(ConfluenceClient):
                     logger.debug(f"Could not delete property '{property_key}': {e}")
                 return True
 
-            # Set/update the property
+            # Check if the property already exists (need version for update)
+            existing_version = None
+            try:
+                existing = self.confluence.get_page_property(page_id, property_key)
+                if existing and isinstance(existing, dict):
+                    existing_version = existing.get("version", {}).get("number")
+            except Exception:  # noqa: S110
+                # Property doesn't exist yet, that's fine - we'll create it
+                pass
+
             property_data = {
                 "key": property_key,
                 "value": value,
             }
-            self.confluence.set_page_property(page_id, property_data)
+
+            if existing_version is not None:
+                # Property exists - use PUT (update) with incremented version
+                property_data["version"] = {"number": existing_version + 1}
+                self.confluence.update_page_property(page_id, property_data)
+            else:
+                # Property doesn't exist - use POST (create)
+                self.confluence.set_page_property(page_id, property_data)
+
             return True
 
         except Exception as e:
-            logger.debug(
+            logger.warning(
                 f"Error setting property '{property_key}' for page {page_id}: {str(e)}"
             )
             return False
@@ -277,6 +299,86 @@ class PagesMixin(ConfluenceClient):
             logger.warning(f"Error setting emoji for page {page_id}: {str(e)}")
             return False
 
+    def _get_page_width(self, page_id: str) -> str | None:
+        """Get the page layout width from content properties.
+
+        The page width (full-width, max, or default) is stored as a content property
+        with key 'content-appearance-published' or 'content-appearance-draft'.
+
+        Args:
+            page_id: The ID of the page
+
+        Returns:
+            The width setting if set ('full-width', 'max', or 'default'), None otherwise
+        """
+        try:
+            # For token/basic auth, use v1 API via atlassian library
+            properties = self.confluence.get_page_properties(page_id)
+            if not properties:
+                return None
+
+            results = properties.get("results", [])
+            for prop in results:
+                key = prop.get("key", "")
+                if key in ("content-appearance-published", "content-appearance-draft"):
+                    value = prop.get("value", {})
+                    # The value is stored as a dict with "value" key or directly as string
+                    if isinstance(value, dict):
+                        return value.get("value")
+                    elif isinstance(value, str):
+                        return value
+
+            return None
+
+        except Exception as e:
+            logger.debug(f"Error fetching page width for page {page_id}: {str(e)}")
+            return None
+
+    def _set_page_width(self, page_id: str, width: str | None) -> bool:
+        """Set the page layout width.
+
+        The page width is stored as content properties.
+        Both 'content-appearance-draft' and 'content-appearance-published' are set
+        to ensure the width appears in both view and edit modes.
+
+        Args:
+            page_id: The ID of the page
+            width: The width to set ('full-width', 'max', or 'default'), or None to remove
+
+        Returns:
+            True if the operation succeeded, False otherwise
+        """
+        try:
+            # Validate width value
+            if width is not None and width not in ["full-width", "max", "default"]:
+                logger.warning(
+                    f"Invalid page width '{width}'. Must be 'full-width', 'max', or 'default'"
+                )
+                return False
+
+            # Set both published and draft properties
+            published_ok = self._set_single_property(
+                page_id, "content-appearance-published", width
+            )
+            draft_ok = self._set_single_property(
+                page_id, "content-appearance-draft", width
+            )
+
+            if not published_ok:
+                logger.warning(
+                    f"Failed to set content-appearance-published for page {page_id}"
+                )
+            if not draft_ok:
+                logger.warning(
+                    f"Failed to set content-appearance-draft for page {page_id}"
+                )
+
+            return published_ok and draft_ok
+
+        except Exception as e:
+            logger.warning(f"Error setting page width for page {page_id}: {str(e)}")
+            return False
+
     def get_page_by_title(
         self, space_key: str, title: str, *, convert_to_markdown: bool = True
     ) -> ConfluencePage | None:
@@ -322,8 +424,9 @@ class PagesMixin(ConfluenceClient):
             # Use the appropriate content format based on the convert_to_markdown flag
             page_content = processed_markdown if convert_to_markdown else processed_html
 
-            # Fetch page emoji from content properties
+            # Fetch page emoji and width from content properties
             emoji = self._get_page_emoji(str(page.get("id", "")))
+            page_width = self._get_page_width(str(page.get("id", "")))
 
             # Create and return the ConfluencePage model
             return ConfluencePage.from_api_response(
@@ -335,6 +438,7 @@ class PagesMixin(ConfluenceClient):
                 content_format="storage" if not convert_to_markdown else "markdown",
                 is_cloud=self.config.is_cloud,
                 emoji=emoji,
+                page_width=page_width,
             )
 
         except KeyError as e:
@@ -429,6 +533,7 @@ class PagesMixin(ConfluenceClient):
         enable_heading_anchors: bool = False,
         content_representation: str | None = None,
         emoji: str | None = None,
+        page_width: str | None = None,
     ) -> ConfluencePage:
         """
         Create a new page in a Confluence space.
@@ -442,6 +547,7 @@ class PagesMixin(ConfluenceClient):
             enable_heading_anchors: Whether to enable automatic heading anchor generation (default: False, keyword-only)
             content_representation: Content format when is_markdown=False ('wiki' or 'storage', keyword-only)
             emoji: Optional emoji character for the page title icon (keyword-only)
+            page_width: Optional page layout width ('full-width', 'max', or 'default', keyword-only)
 
         Returns:
             ConfluencePage model containing the new page's data
@@ -496,6 +602,10 @@ class PagesMixin(ConfluenceClient):
             if emoji:
                 self._set_page_emoji(page_id, emoji)
 
+            # Set the page width if provided
+            if page_width:
+                self._set_page_width(page_id, page_width)
+
             return self.get_page_content(page_id)
         except Exception as e:
             logger.error(
@@ -518,6 +628,7 @@ class PagesMixin(ConfluenceClient):
         enable_heading_anchors: bool = False,
         content_representation: str | None = None,
         emoji: str | None = None,
+        page_width: str | None = None,
     ) -> ConfluencePage:
         """
         Update an existing page in Confluence.
@@ -533,6 +644,7 @@ class PagesMixin(ConfluenceClient):
             enable_heading_anchors: Whether to enable automatic heading anchor generation (default: False, keyword-only)
             content_representation: Content format when is_markdown=False ('wiki' or 'storage', keyword-only)
             emoji: Optional emoji character for the page title icon (keyword-only). Pass empty string to remove emoji.
+            page_width: Optional page layout width ('full-width', 'max', or 'default', keyword-only). Pass empty string to reset to default.
 
         Returns:
             ConfluencePage model containing the updated page's data
@@ -593,11 +705,103 @@ class PagesMixin(ConfluenceClient):
                 emoji_to_set = emoji if emoji else None
                 self._set_page_emoji(page_id, emoji_to_set)
 
+            # Set or remove the page width if provided
+            if page_width is not None:
+                # Empty string means reset to default, otherwise set it
+                width_to_set = page_width if page_width else None
+                self._set_page_width(page_id, width_to_set)
+
             # After update, refresh the page data
             return self.get_page_content(page_id)
         except Exception as e:
             logger.error(f"Error updating page {page_id}: {str(e)}")
             raise Exception(f"Failed to update page {page_id}: {str(e)}") from e
+
+    def get_space_page_tree(
+        self,
+        space_key: str,
+        limit: int = 500,
+    ) -> dict:
+        """Get hierarchical page tree for a space.
+
+        Returns a flat list of pages with parent_id and position attributes,
+        allowing the AI to build custom views or filter as needed. This is
+        more token-efficient than ASCII art and easier to process.
+
+        Args:
+            space_key: The key of the space
+            limit: Maximum number of pages to fetch (default: 500)
+
+        Returns:
+            Dictionary with:
+            - space_key: The space key
+            - total_pages: Total number of pages in the response
+            - pages: List of dicts with id, title, parent_id, position, depth
+            - Note: parent_id is None for root pages
+
+        Raises:
+            Exception: If there is an error fetching pages
+        """
+        try:
+            # Fetch all pages from the space
+            pages = self.confluence.get_all_pages_from_space(
+                space=space_key,
+                start=0,
+                limit=limit,
+                expand="ancestors,metadata.properties.position",
+            )
+
+            if not pages:
+                return {"space_key": space_key, "total_pages": 0, "pages": []}
+
+            # Build flat list with parent_id and depth
+            result_pages = []
+
+            for page in pages:
+                page_id = page.get("id")
+                title = page.get("title", "Untitled")
+
+                # Extract position from extensions (v1 API format)
+                position = page.get("extensions", {}).get("position")
+
+                # Determine parent and depth from ancestors
+                ancestors = page.get("ancestors", [])
+                if ancestors:
+                    parent_id = ancestors[-1].get("id")
+                    depth = len(ancestors)
+                else:
+                    parent_id = None
+                    depth = 0
+
+                result_pages.append(
+                    {
+                        "id": page_id,
+                        "title": title,
+                        "parent_id": parent_id,
+                        "position": position,
+                        "depth": depth,
+                    }
+                )
+
+            # Sort by depth first (breadth-first), then by position
+            # Note: position can be 0 (valid), so check for None explicitly
+            result_pages.sort(
+                key=lambda p: (
+                    p["depth"],
+                    p["position"] if p["position"] is not None else 999999,
+                    p["title"],
+                )
+            )
+
+            return {
+                "space_key": space_key,
+                "total_pages": len(result_pages),
+                "pages": result_pages,
+            }
+
+        except Exception as e:
+            logger.error(f"Error fetching page tree for space '{space_key}': {e}")
+            raise Exception(f"Failed to fetch page tree: {e}") from e
 
     def get_page_children(
         self,
