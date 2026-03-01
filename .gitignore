@@ -29,6 +29,7 @@ MANIFEST
 # Environments
 .env
 .env.*
+!tests/e2e/docker/.env.example
 .venv
 env/
 venv/
@@ -74,7 +75,8 @@ playground/
 .cursor*
 
 # Claude
-.claude/
+.claude/worktrees/
+.claude/settings.local.json
 
 # Security scan results (large JSON files, regenerate as needed)
 security/scans/
@@ -83,3 +85,6 @@ security/scans/
 # Keep only the canonical eruditis-atlassian.mcpb, ignore versioned builds
 docs/mcpb-extension/eruditis-atlassian-*.mcpb
 !docs/mcpb-extension/eruditis-atlassian.mcpb
+
+# Dev docs (local task documents)
+dev/

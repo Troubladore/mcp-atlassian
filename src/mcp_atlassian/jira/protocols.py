@@ -3,7 +3,7 @@
 from abc import abstractmethod
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from ..models.jira import JiraIssue
+from ..models.jira import JiraIssue, ProFormaForm
 from ..models.jira.search import JiraSearchResult
 
 if TYPE_CHECKING:
@@ -26,6 +26,35 @@ class AttachmentsOperationsProto(Protocol):
 
         Returns:
             A dictionary with upload results
+        """
+
+
+class FormsOperationsProto(Protocol):
+    """Protocol defining ProForma forms operations interface."""
+
+    @abstractmethod
+    def get_issue_forms(self, issue_key: str) -> list[ProFormaForm]:
+        """
+        Get all ProForma forms associated with an issue.
+
+        Args:
+            issue_key: The issue key (e.g. 'PROJ-123')
+
+        Returns:
+            List of ProFormaForm objects
+        """
+
+    @abstractmethod
+    def get_form_details(self, issue_key: str, form_id: str) -> ProFormaForm | None:
+        """
+        Get detailed information about a specific ProForma form.
+
+        Args:
+            issue_key: The issue key (e.g. 'PROJ-123')
+            form_id: The form identifier (e.g. 'i12345')
+
+        Returns:
+            ProFormaForm object or None if not found
         """
 
 
@@ -138,6 +167,21 @@ class FieldsOperationsProto(Protocol):
 
         Returns:
             A dictionary mapping lowercase field names and field IDs to actual field IDs.
+        """
+
+    @abstractmethod
+    def _format_field_value_for_write(
+        self, field_id: str, value: Any, field_definition: dict | None
+    ) -> Any:
+        """Format field values for the Jira API.
+
+        Args:
+            field_id: The Jira field ID
+            value: The raw value to format
+            field_definition: Field definition dict, or None
+
+        Returns:
+            Formatted value suitable for the Jira API
         """
 
     @abstractmethod
