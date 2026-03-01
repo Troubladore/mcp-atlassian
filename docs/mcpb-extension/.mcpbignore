@@ -1,0 +1,4 @@
+# Don't bundle tests or build artifacts in the .mcpb package
+tests/
+*.mcpb
+.mcpbignore
