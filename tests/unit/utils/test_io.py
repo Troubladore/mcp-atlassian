@@ -25,7 +25,7 @@ def test_is_read_only_mode_default():
 
 
 def test_is_read_only_mode_true():
-    """Test that is_read_only_mode returns True when environment variable is set to true."""
+    """Test is_read_only_mode returns True when set to 'true'."""
     # Arrange - Set READ_ONLY_MODE to true
     with patch.dict(os.environ, {"READ_ONLY_MODE": "true"}):
         # Act
@@ -36,7 +36,7 @@ def test_is_read_only_mode_true():
 
 
 def test_is_read_only_mode_yes():
-    """Test that is_read_only_mode returns True when environment variable is set to yes."""
+    """Test is_read_only_mode returns True when set to 'yes'."""
     # Arrange - Set READ_ONLY_MODE to yes
     with patch.dict(os.environ, {"READ_ONLY_MODE": "yes"}):
         # Act
@@ -47,7 +47,7 @@ def test_is_read_only_mode_yes():
 
 
 def test_is_read_only_mode_one():
-    """Test that is_read_only_mode returns True when environment variable is set to 1."""
+    """Test is_read_only_mode returns True when set to '1'."""
     # Arrange - Set READ_ONLY_MODE to 1
     with patch.dict(os.environ, {"READ_ONLY_MODE": "1"}):
         # Act
@@ -58,7 +58,7 @@ def test_is_read_only_mode_one():
 
 
 def test_is_read_only_mode_on():
-    """Test that is_read_only_mode returns True when environment variable is set to on."""
+    """Test is_read_only_mode returns True when set to 'on'."""
     # Arrange - Set READ_ONLY_MODE to on
     with patch.dict(os.environ, {"READ_ONLY_MODE": "on"}):
         # Act
@@ -80,7 +80,7 @@ def test_is_read_only_mode_uppercase():
 
 
 def test_is_read_only_mode_false():
-    """Test that is_read_only_mode returns False when environment variable is set to false."""
+    """Test is_read_only_mode returns False when set to 'false'."""
     # Arrange - Set READ_ONLY_MODE to false
     with patch.dict(os.environ, {"READ_ONLY_MODE": "false"}):
         # Act

@@ -64,8 +64,7 @@ def validate_safe_path(
     resolved_path = p.resolve(strict=False)
 
     if not resolved_path.is_relative_to(resolved_base):
-        raise ValueError(
-            f"Path traversal detected: {path} resolves outside {resolved_base}"
-        )
+        msg = f"Path traversal detected: {path} resolves outside {resolved_base}"
+        raise ValueError(msg)
 
     return resolved_path
