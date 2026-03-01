@@ -81,7 +81,7 @@ Toolsets group related tools for easier management via `TOOLSETS` env var or `--
 
 | Toolset | Core | Tools |
 |---------|:----:|-------|
-| `confluence_pages` | Yes | `confluence_search`, `confluence_get_page`, `confluence_get_page_children`, `confluence_get_page_history`, `confluence_create_page`, `confluence_update_page`, `confluence_delete_page` |
+| `confluence_pages` | Yes | `confluence_search`, `confluence_get_page`, `confluence_get_page_children`, `confluence_get_page_ancestors`, `confluence_get_space_page_tree`, `confluence_list_spaces`, `confluence_get_page_history`, `confluence_create_page`, `confluence_update_page`, `confluence_delete_page`, `confluence_move_page_position` |
 | `confluence_comments` | Yes | `confluence_get_comments`, `confluence_add_comment` |
 | `confluence_labels` | No | `confluence_get_labels`, `confluence_add_label` |
 | `confluence_users` | No | `confluence_search_user` |
@@ -121,3 +121,46 @@ READ_ONLY_MODE=true
 ```
 
 When enabled, only read operations are available regardless of `ENABLED_TOOLS` setting.
+
+## Confluence Page Hierarchy Navigation
+
+Confluence pages are organized in a hierarchical tree structure. These tools help you discover, visualize, and manipulate the page hierarchy.
+
+### Discovery and Visualization
+
+**`confluence_list_spaces`**
+- Lists all accessible Confluence spaces
+- Returns space keys and names for discovery
+- Supports pagination with `limit` and `start` parameters
+- Use this first to find which spaces exist
+
+**`confluence_get_space_page_tree`**
+- Returns flat list of pages with parent_id and depth for token-efficient processing
+- Shows page titles, IDs, and nesting structure
+- Sorts pages by position attribute when available
+- Essential for understanding space organization before creating/moving pages
+
+**`confluence_get_page_ancestors`**
+- Returns breadcrumb trail from a page to the space root
+- Shows all parent pages in hierarchical order (immediate parent first)
+- Helps understand where a specific page is located
+
+### Page Positioning
+
+**`confluence_move_page_position`**
+- Moves a page to a specific position relative to another page
+- Three positioning modes:
+  - `before`: Place as sibling immediately before the target page
+  - `after`: Place as sibling immediately after the target page
+  - `append`: Place as child of the target page
+- Requires `page_id`, `position`, and `target_id` parameters
+
+**Warning:** Using `before` or `after` when the target is a top-level page will move the page to the space root, which may be difficult to find in the UI.
+
+### Typical Workflow
+
+1. **Discover spaces:** Use `confluence_list_spaces` to see available spaces
+2. **Visualize structure:** Use `confluence_get_space_page_tree` to see the full hierarchy
+3. **Create page:** Use `confluence_create_page` with optional `parent_id`
+4. **Position precisely:** Use `confluence_move_page_position` to place it before/after siblings
+5. **Verify location:** Use `confluence_get_page_ancestors` to confirm placement
