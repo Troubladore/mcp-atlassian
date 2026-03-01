@@ -278,7 +278,9 @@ def run_oauth_flow(args: argparse.Namespace) -> bool:
             logger.info(f"ATLASSIAN_OAUTH_REDIRECT_URI={oauth_config.redirect_uri}")
             logger.info(f"ATLASSIAN_OAUTH_SCOPE={oauth_config.scope}")
             logger.info(f"ATLASSIAN_OAUTH_CLOUD_ID={oauth_config.cloud_id}")
-            logger.info("\n⚠️  Note: Replace <YOUR_CLIENT_SECRET_HERE> with your actual OAuth client secret.")
+            logger.info(
+                "\n⚠️  Note: Replace <YOUR_CLIENT_SECRET_HERE> with your actual OAuth client secret."
+            )
         else:
             logger.warning(
                 "Cloud ID could not be obtained. Some API calls might require it."
