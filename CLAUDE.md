@@ -1,3 +1,5 @@
+@AGENTS.md
+
 # Claude Code Project Notes
 
 ## Repository Structure
