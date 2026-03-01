@@ -17,6 +17,16 @@ mcpb pack . eruditis-atlassian.mcpb
 node --test tests/*.test.js
 ```
 
+## Upload to Claude Desktop
+
+After building, remind the user:
+
+1. The built file is at `docs/mcpb-extension/eruditis-atlassian.mcpb`
+2. Go to **Organization Settings → Libraries → Connectors → Desktop**
+3. Find the "Eruditis Atlassian" extension, click the **"..." menu**
+4. Upload the new `.mcpb` file
+5. Team members will get the update automatically
+
 ## Key facts
 
 - `.mcpb` files are built with `mcpb pack`, NOT `zip`
