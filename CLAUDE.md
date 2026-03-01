@@ -52,9 +52,39 @@ EOF
 )"
 ```
 
+## Developer Setup
+
+After cloning, install the pre-commit hook so formatting and lint checks run on every commit:
+
+```bash
+uv run pre-commit install
+```
+
 ## Running Tests
 
 ```bash
+uv run pytest tests/ -x
+```
+
+## Linting and Formatting
+
+Pre-commit runs `ruff-format`, `ruff`, and `mypy` automatically on commit. To run manually:
+
+```bash
+uv run ruff format .
+uv run ruff check --fix .
+```
+
+## Merging Upstream
+
+When merging `upstream/main` into `eruditis/main`, always run the formatter after resolving conflicts — conflict resolution creates unformatted code:
+
+```bash
+git fetch upstream
+git merge upstream/main
+# resolve conflicts...
+uv run ruff format .
+uv run ruff check --fix .
 uv run pytest tests/ -x
 ```
 
