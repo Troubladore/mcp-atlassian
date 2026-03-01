@@ -256,3 +256,22 @@ class TestToolsetTagCompleteness:
         assert len(confluence_tools) == 24, (
             f"Expected 24 Confluence tools, got {len(confluence_tools)}"
         )
+
+    def test_delete_tools_have_delete_tag(self, jira_tools, confluence_tools):
+        """Verify delete tools are tagged with 'delete'."""
+        all_tools = {**jira_tools, **confluence_tools}
+        expected_delete_tools = {
+            "delete_issue",
+            "delete_page",
+            "delete_attachment",
+        }
+        for name, tool in all_tools.items():
+            tags = tool.tags if hasattr(tool, "tags") else set()
+            if name in expected_delete_tools:
+                assert "delete" in tags, (
+                    f"Tool '{name}' must have 'delete' tag for safety filtering"
+                )
+            else:
+                assert "delete" not in tags, (
+                    f"Tool '{name}' has 'delete' tag but is not a delete operation"
+                )

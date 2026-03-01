@@ -7,7 +7,8 @@ Connect Claude to Eruditis Confluence and Jira via the [mcp-atlassian](https://g
 - **Network egress filtering**: Container can ONLY connect to Atlassian domains (*.atlassian.net, *.jira.com) - prevents data exfiltration
 - **Secure by default**: Runs in a Docker container with no filesystem access and no host network access
 - **Read-only by default**: Write operations must be explicitly enabled
-- **Curated tool list**: Only safe operations are exposed (no delete operations)
+- **Configurable toolsets**: Control which tool categories are available via TOOLSETS
+- **Delete protection**: Delete operations blocked by default, even when writes are enabled
 - **Encrypted credentials**: API tokens stored in OS keychain (macOS Keychain or Windows Credential Manager)
 - **Automatic setup**: Filtering proxy auto-starts on first use, no manual configuration needed
 
@@ -69,15 +70,29 @@ Show me the open Jira issues in the DEV project
 
 ## Configuration Options
 
+### Toolsets
+
+Control which categories of tools are available:
+
+- **Default** (`default`): Core tools — issues, fields, comments, transitions, pages, page comments
+- **All** (`all`): All 72 tools across 21 toolsets
+- **Custom**: Comma-separated list, e.g. `default,jira_agile,jira_projects`
+
 ### Enable Write Operations
 
 By default, the extension is read-only. To enable create/update operations:
 
 1. Go to extension settings in Claude Desktop
-2. Set "Enable Write Operations" to `true`
+2. Set "Read-Only Mode" to `false`
 3. Restart Claude Desktop
 
-**Note**: Delete operations are never exposed, regardless of this setting.
+### Allow Delete Operations
+
+Delete operations are blocked by default, even when writes are enabled. To allow deletes:
+
+1. Set "Read-Only Mode" to `false`
+2. Set "Allow Delete Operations" to `true`
+3. Restart Claude Desktop
 
 ### Space and Project Filters
 
