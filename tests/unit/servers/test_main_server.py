@@ -8,6 +8,7 @@ import httpx
 import pytest
 from fastmcp.exceptions import NotFoundError
 
+from mcp_atlassian.servers.context import MainAppContext
 from mcp_atlassian.servers.main import AtlassianMCP, UserTokenMiddleware, main_mcp
 
 
@@ -556,9 +557,21 @@ class TestCallToolMcpErrorMessages:
         return tool
 
     @pytest.fixture
-    def mcp_server(self) -> AtlassianMCP:
+    def _mock_app_state(self) -> MainAppContext:
+        """App state used by _call_tool_mcp tests."""
+        return MainAppContext(read_only=False)
+
+    @pytest.fixture
+    def mcp_server(self, _mock_app_state: MainAppContext) -> AtlassianMCP:
         """Create a minimal AtlassianMCP instance for testing."""
-        return AtlassianMCP(name="Test MCP")
+        server = AtlassianMCP(name="Test MCP")
+        # Patch the request_context property so _call_tool_mcp sees valid state
+        mock_ctx = MagicMock()
+        mock_ctx.lifespan_context = {
+            "app_lifespan_context": _mock_app_state,
+        }
+        type(server._mcp_server).request_context = property(lambda self: mock_ctx)
+        return server
 
     @pytest.mark.anyio
     async def test_unknown_tool_raises_not_found(

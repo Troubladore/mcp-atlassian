@@ -360,6 +360,18 @@ class AtlassianMCP(FastMCP[MainAppContext]):
         Raises:
             NotFoundError: With a helpful message when the tool is filtered.
         """
+        # Check if lifespan context with app state is available for filtering
+        req_context = self._mcp_server.request_context
+        lifespan_ctx = req_context.lifespan_context if req_context is not None else None
+        app_state = (
+            lifespan_ctx.get("app_lifespan_context")
+            if isinstance(lifespan_ctx, dict)
+            else None
+        )
+        if app_state is None:
+            # No app lifespan state — delegate to base class
+            return await super()._call_tool_mcp(key, arguments)
+
         # Get the filtered tools list to check if this tool is available
         filtered_tool_names = {t.name for t in await self._list_tools_mcp()}
 
