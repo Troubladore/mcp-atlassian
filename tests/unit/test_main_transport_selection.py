@@ -21,10 +21,20 @@ class TestMainTransportSelection:
     @pytest.fixture
     def mock_asyncio_run(self):
         """Mock asyncio.run to capture what coroutine is executed."""
+        captured_coros: list = []
+
+        def _capture_and_close(coro):
+            captured_coros.append(coro)
+            mock_run._called_with = coro
+
         with patch("asyncio.run") as mock_run:
-            # Store the coroutine for inspection
-            mock_run.side_effect = lambda coro: setattr(mock_run, "_called_with", coro)
+            mock_run.side_effect = _capture_and_close
             yield mock_run
+
+            # Close all captured coroutines to avoid RuntimeWarning
+            for coro in captured_coros:
+                if hasattr(coro, "close"):
+                    coro.close()
 
     @pytest.mark.parametrize("transport", ["sse", "streamable-http"])
     def test_http_transports_use_direct_execution(
@@ -148,7 +158,7 @@ class TestMainTransportSelection:
     def test_signal_handlers_always_setup(self, mock_server):
         """Test that signal handlers are set up regardless of transport."""
         with patch("mcp_atlassian.servers.main.AtlassianMCP", return_value=mock_server):
-            with patch("asyncio.run"):
+            with patch("asyncio.run") as mock_run:
                 # Patch where it's imported in the main module
                 with patch("mcp_atlassian.setup_signal_handlers") as mock_setup:
                     with patch.dict("os.environ", {"TRANSPORT": "stdio"}):
@@ -160,6 +170,12 @@ class TestMainTransportSelection:
 
                             # Signal handlers should always be set up
                             mock_setup.assert_called_once()
+
+                # Close unawaited coroutine to avoid RuntimeWarning
+                if mock_run.call_args:
+                    coro = mock_run.call_args[0][0]
+                    if hasattr(coro, "close"):
+                        coro.close()
 
     def test_error_handling_preserved(self, mock_server):
         """Test that error handling works correctly for all transports."""
@@ -174,7 +190,13 @@ class TestMainTransportSelection:
         with patch("mcp_atlassian.servers.main.AtlassianMCP", return_value=mock_server):
             with patch("asyncio.run") as mock_run:
                 # Simulate the exception propagating through asyncio.run
-                mock_run.side_effect = error
+                captured_coros: list = []
+
+                def _raise_after_capture(coro):
+                    captured_coros.append(coro)
+                    raise error
+
+                mock_run.side_effect = _raise_after_capture
 
                 with patch.dict("os.environ", {"TRANSPORT": "stdio"}):
                     with patch("sys.argv", ["mcp-atlassian"]):
@@ -188,3 +210,8 @@ class TestMainTransportSelection:
                             assert (
                                 mock_exit.call_args_list[1][0][0] == 0
                             )  # Finally exit
+
+                # Close unawaited coroutines to avoid RuntimeWarning
+                for coro in captured_coros:
+                    if hasattr(coro, "close"):
+                        coro.close()

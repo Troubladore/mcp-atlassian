@@ -78,6 +78,11 @@ class TestTransportLifecycleBehavior:
                             called_coro, "cr_code"
                         ), f"{transport} should use direct run_async execution"
 
+                        # Close the unawaited coroutine to avoid
+                        # RuntimeWarning
+                        if hasattr(called_coro, "close"):
+                            called_coro.close()
+
     @pytest.mark.anyio
     async def test_stdio_no_race_condition(self):
         """Test that stdio transport doesn't create race condition with MCP server.
@@ -177,6 +182,11 @@ class TestTransportLifecycleBehavior:
                             called_coro
                         )
 
+                        # Close the unawaited coroutine to avoid
+                        # RuntimeWarning
+                        if hasattr(called_coro, "close"):
+                            called_coro.close()
+
     @pytest.mark.anyio
     async def test_shutdown_event_handling(self):
         """Test that shutdown events are handled correctly for all transports."""
@@ -236,6 +246,10 @@ class TestTransportLifecycleBehavior:
                         called_coro
                     )
 
+                    # Close the unawaited coroutine to avoid RuntimeWarning
+                    if hasattr(called_coro, "close"):
+                        called_coro.close()
+
 
 class TestRegressionPrevention:
     """Tests to prevent regression of specific issues."""
@@ -256,7 +270,7 @@ class TestRegressionPrevention:
     def test_signal_handlers_are_setup(self):
         """Verify signal handlers are properly configured."""
         with patch("mcp_atlassian.setup_signal_handlers") as mock_setup:
-            with patch("asyncio.run"):
+            with patch("asyncio.run") as mock_asyncio_run:
                 with patch("mcp_atlassian.servers.main.AtlassianMCP"):
                     with patch("sys.argv", ["mcp-atlassian"]):
                         try:
@@ -266,3 +280,9 @@ class TestRegressionPrevention:
 
                     # Signal handlers should always be set up
                     mock_setup.assert_called_once()
+
+                    # Close unawaited coroutine to avoid RuntimeWarning
+                    if mock_asyncio_run.call_args:
+                        coro = mock_asyncio_run.call_args[0][0]
+                        if hasattr(coro, "close"):
+                            coro.close()

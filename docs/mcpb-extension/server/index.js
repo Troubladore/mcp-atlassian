@@ -84,7 +84,9 @@ try {
 const ATLASSIAN_URL = process.env.ATLASSIAN_URL || "";
 const ATLASSIAN_EMAIL = process.env.ATLASSIAN_EMAIL || "";
 const ATLASSIAN_API_TOKEN = process.env.ATLASSIAN_API_TOKEN || "";
-const ENABLE_WRITE = (process.env.ENABLE_WRITE_TOOLS || "false").toLowerCase() === "true";
+const TOOLSETS = process.env.TOOLSETS || "default";
+const READ_ONLY_MODE = process.env.READ_ONLY_MODE || "true";
+const ALLOW_DELETE_TOOLS = process.env.ALLOW_DELETE_TOOLS || "false";
 const CONFLUENCE_SPACES_FILTER = process.env.CONFLUENCE_SPACES_FILTER || "";
 const JIRA_PROJECTS_FILTER = process.env.JIRA_PROJECTS_FILTER || "";
 
@@ -96,6 +98,8 @@ if (!ATLASSIAN_URL || !ATLASSIAN_EMAIL || !ATLASSIAN_API_TOKEN) {
   log(`  ATLASSIAN_API_TOKEN: ${ATLASSIAN_API_TOKEN ? "set" : "MISSING"}`);
   process.exit(1);
 }
+
+log(`Config: TOOLSETS=${TOOLSETS}, READ_ONLY_MODE=${READ_ONLY_MODE}, ALLOW_DELETE_TOOLS=${ALLOW_DELETE_TOOLS}`);
 
 // --- Helper Functions ---
 
@@ -321,54 +325,6 @@ const baseUrl = ATLASSIAN_URL.replace(/\/+$/, "");
 const confluenceUrl = baseUrl.includes("/wiki") ? baseUrl : `${baseUrl}/wiki`;
 const jiraUrl = baseUrl.replace(/\/wiki\/?$/, "");
 
-// --- Build the tool allowlist ---
-// Read-only tools (always enabled)
-const READ_TOOLS = [
-  "confluence_search",
-  "confluence_get_page",
-  "confluence_get_page_children",
-  "confluence_get_page_ancestors",
-  "confluence_list_spaces",
-  "confluence_get_space_page_tree",
-  "confluence_get_comments",
-  "confluence_get_labels",
-  "confluence_search_user",
-  "jira_search",
-  "jira_get_issue",
-  "jira_get_all_projects",
-  "jira_get_project_issues",
-  "jira_get_transitions",
-  "jira_search_fields",
-  "jira_get_agile_boards",
-  "jira_get_board_issues",
-  "jira_get_sprints_from_board",
-  "jira_get_sprint_issues",
-  "jira_get_worklog",
-  "jira_get_user_profile",
-];
-
-// Write tools (only if explicitly enabled — never includes delete operations)
-const WRITE_TOOLS = [
-  "confluence_create_page",
-  "confluence_update_page",
-  "confluence_move_page_position",
-  "confluence_add_label",
-  "confluence_add_comment",
-  "jira_create_issue",
-  "jira_update_issue",
-  "jira_add_comment",
-  "jira_transition_issue",
-  "jira_add_worklog",
-  "jira_link_to_epic",
-];
-
-// NEVER exposed, regardless of config:
-// jira_delete_issue, confluence_delete_page, jira_batch_create_issues
-
-const enabledTools = ENABLE_WRITE
-  ? [...READ_TOOLS, ...WRITE_TOOLS]
-  : READ_TOOLS;
-
 // --- Ensure Docker images and proxy are ready ---
 
 // 1. Remove any leftover containers FIRST so their images can be cleaned up.
@@ -430,8 +386,10 @@ const dockerArgs = [
   "-e", `JIRA_USERNAME=${ATLASSIAN_EMAIL}`,
   "-e", `JIRA_API_TOKEN=${ATLASSIAN_API_TOKEN}`,
 
-  // Tool filtering
-  "-e", `ENABLED_TOOLS=${enabledTools.join(",")}`,
+  // Tool filtering (Python server handles all logic)
+  "-e", `TOOLSETS=${TOOLSETS}`,
+  "-e", `READ_ONLY_MODE=${READ_ONLY_MODE}`,
+  "-e", `ALLOW_DELETE_TOOLS=${ALLOW_DELETE_TOOLS}`,
 
   // Network egress filtering via proxy (use container name for DNS)
   "-e", `HTTP_PROXY=http://${PROXY_CONTAINER_NAME}:3128`,
