@@ -1,7 +1,5 @@
 """Unit tests for Confluence server helper functions."""
 
-import pytest
-
 from mcp_atlassian.servers.confluence import parse_page_id_from_url
 
 
@@ -10,7 +8,9 @@ class TestURLParsing:
 
     def test_parse_modern_url(self):
         """Test parsing modern Confluence Cloud URL format."""
-        url = "https://eruditis.atlassian.net/wiki/spaces/TEAM/pages/123456789/Page+Title"
+        url = (
+            "https://eruditis.atlassian.net/wiki/spaces/TEAM/pages/123456789/Page+Title"
+        )
         result = parse_page_id_from_url(url)
         assert result == "123456789"
 
