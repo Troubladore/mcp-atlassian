@@ -1908,7 +1908,11 @@ class TestPageEmoji:
         assert pages_mixin.confluence.update_page_property.call_count == 2
         pages_mixin.confluence.update_page_property.assert_any_call(
             page_id,
-            {"key": "emoji-title-published", "value": "1f389", "version": {"number": 3}},
+            {
+                "key": "emoji-title-published",
+                "value": "1f389",
+                "version": {"number": 3},
+            },
         )
         pages_mixin.confluence.update_page_property.assert_any_call(
             page_id,
@@ -2095,9 +2099,7 @@ class TestPageWidth:
         page_id = "page_full_width_123"
 
         mock_properties = {
-            "results": [
-                {"key": "content-appearance-published", "value": "full-width"}
-            ]
+            "results": [{"key": "content-appearance-published", "value": "full-width"}]
         }
 
         with patch.object(pages_mixin.confluence, "get_page_properties") as mock_get:
@@ -2113,9 +2115,7 @@ class TestPageWidth:
         page_id = "page_fixed_width_123"
 
         mock_properties = {
-            "results": [
-                {"key": "content-appearance-draft", "value": "max"}
-            ]
+            "results": [{"key": "content-appearance-draft", "value": "max"}]
         }
 
         with patch.object(pages_mixin.confluence, "get_page_properties") as mock_get:
@@ -2143,9 +2143,14 @@ class TestPageWidth:
         """Test setting page to full-width when property doesn't exist yet (POST/create)."""
         page_id = "page_set_full_123"
 
-        with patch.object(
-            pages_mixin.confluence, "get_page_property", side_effect=Exception("Not found")
-        ), patch.object(pages_mixin.confluence, "set_page_property") as mock_set:
+        with (
+            patch.object(
+                pages_mixin.confluence,
+                "get_page_property",
+                side_effect=Exception("Not found"),
+            ),
+            patch.object(pages_mixin.confluence, "set_page_property") as mock_set,
+        ):
             result = pages_mixin._set_page_width(page_id, "full-width")
 
             assert mock_set.call_count == 2
@@ -2168,9 +2173,14 @@ class TestPageWidth:
             "version": {"number": 3},
         }
 
-        with patch.object(
-            pages_mixin.confluence, "get_page_property", return_value=existing_property
-        ), patch.object(pages_mixin.confluence, "update_page_property") as mock_update:
+        with (
+            patch.object(
+                pages_mixin.confluence,
+                "get_page_property",
+                return_value=existing_property,
+            ),
+            patch.object(pages_mixin.confluence, "update_page_property") as mock_update,
+        ):
             result = pages_mixin._set_page_width(page_id, "full-width")
 
             assert mock_update.call_count == 2
@@ -2185,9 +2195,14 @@ class TestPageWidth:
         """Test setting page to max."""
         page_id = "page_set_max_123"
 
-        with patch.object(
-            pages_mixin.confluence, "get_page_property", side_effect=Exception("Not found")
-        ), patch.object(pages_mixin.confluence, "set_page_property") as mock_set:
+        with (
+            patch.object(
+                pages_mixin.confluence,
+                "get_page_property",
+                side_effect=Exception("Not found"),
+            ),
+            patch.object(pages_mixin.confluence, "set_page_property") as mock_set,
+        ):
             result = pages_mixin._set_page_width(page_id, "max")
 
             assert mock_set.call_count == 2
@@ -2199,9 +2214,14 @@ class TestPageWidth:
         """Test setting page to default width."""
         page_id = "page_set_default_123"
 
-        with patch.object(
-            pages_mixin.confluence, "get_page_property", side_effect=Exception("Not found")
-        ), patch.object(pages_mixin.confluence, "set_page_property") as mock_set:
+        with (
+            patch.object(
+                pages_mixin.confluence,
+                "get_page_property",
+                side_effect=Exception("Not found"),
+            ),
+            patch.object(pages_mixin.confluence, "set_page_property") as mock_set,
+        ):
             result = pages_mixin._set_page_width(page_id, "default")
 
             assert mock_set.call_count == 2
@@ -2222,7 +2242,9 @@ class TestPageWidth:
         """Test removing page width (reset to default)."""
         page_id = "page_remove_width_123"
 
-        with patch.object(pages_mixin.confluence, "delete_page_property") as mock_delete:
+        with patch.object(
+            pages_mixin.confluence, "delete_page_property"
+        ) as mock_delete:
             result = pages_mixin._set_page_width(page_id, None)
 
             assert mock_delete.call_count == 2
@@ -2232,15 +2254,14 @@ class TestPageWidth:
         """Test that get_page_content includes page width."""
         page_id = "page_with_width_123"
 
-        with patch.object(
-            pages_mixin.confluence, "get_page_by_id"
-        ) as mock_get, patch.object(
-            pages_mixin, "_get_page_emoji"
-        ) as mock_emoji, patch.object(
-            pages_mixin, "_get_page_width"
-        ) as mock_width, patch.object(
-            pages_mixin.preprocessor, "process_html_content"
-        ) as mock_process:
+        with (
+            patch.object(pages_mixin.confluence, "get_page_by_id") as mock_get,
+            patch.object(pages_mixin, "_get_page_emoji") as mock_emoji,
+            patch.object(pages_mixin, "_get_page_width") as mock_width,
+            patch.object(
+                pages_mixin.preprocessor, "process_html_content"
+            ) as mock_process,
+        ):
             mock_get.return_value = {
                 "id": page_id,
                 "title": "Test Page",
@@ -2285,9 +2306,7 @@ class TestPageHierarchy:
         pages_mixin.confluence._session.put = MagicMock(return_value=mock_response)
 
         result = pages_mixin.move_page_position(
-            page_id=page_id,
-            position="after",
-            target_id=target_id
+            page_id=page_id, position="after", target_id=target_id
         )
 
         assert result is True
@@ -2305,13 +2324,14 @@ class TestPageHierarchy:
         pages_mixin.confluence._session.put = MagicMock(return_value=mock_response)
 
         result = pages_mixin.move_page_position(
-            page_id=page_id,
-            position="before",
-            target_id=target_id
+            page_id=page_id, position="before", target_id=target_id
         )
 
         assert result is True
-        assert f"/rest/api/content/{page_id}/move/before/{target_id}" in pages_mixin.confluence._session.put.call_args[0][0]
+        assert (
+            f"/rest/api/content/{page_id}/move/before/{target_id}"
+            in pages_mixin.confluence._session.put.call_args[0][0]
+        )
 
     def test_move_page_position_append(self, pages_mixin):
         """Test moving a page as child (append) of another page."""
@@ -2323,21 +2343,20 @@ class TestPageHierarchy:
         pages_mixin.confluence._session.put = MagicMock(return_value=mock_response)
 
         result = pages_mixin.move_page_position(
-            page_id=page_id,
-            position="append",
-            target_id=target_id
+            page_id=page_id, position="append", target_id=target_id
         )
 
         assert result is True
-        assert f"/rest/api/content/{page_id}/move/append/{target_id}" in pages_mixin.confluence._session.put.call_args[0][0]
+        assert (
+            f"/rest/api/content/{page_id}/move/append/{target_id}"
+            in pages_mixin.confluence._session.put.call_args[0][0]
+        )
 
     def test_move_page_position_invalid(self, pages_mixin):
         """Test that invalid position raises ValueError."""
         with pytest.raises(ValueError, match="Invalid position"):
             pages_mixin.move_page_position(
-                page_id="123",
-                position="invalid",
-                target_id="456"
+                page_id="123", position="invalid", target_id="456"
             )
 
     def test_move_page_position_http_error(self, pages_mixin):
@@ -2347,15 +2366,15 @@ class TestPageHierarchy:
         mock_response = MagicMock()
         mock_response.status_code = 404
         mock_response.text = "Page not found"
-        mock_response.raise_for_status.side_effect = requests.HTTPError(response=mock_response)
+        mock_response.raise_for_status.side_effect = requests.HTTPError(
+            response=mock_response
+        )
 
         pages_mixin.confluence._session.put = MagicMock(return_value=mock_response)
 
         with pytest.raises(ValueError, match="Failed to move page"):
             pages_mixin.move_page_position(
-                page_id="123",
-                position="after",
-                target_id="999"
+                page_id="123", position="after", target_id="999"
             )
 
     def test_get_space_page_tree_empty(self, pages_mixin):
@@ -2376,10 +2395,12 @@ class TestPageHierarchy:
                 "id": "123",
                 "title": "Root Page",
                 "ancestors": [],
-                "extensions": {"position": 0}
+                "extensions": {"position": 0},
             }
         ]
-        pages_mixin.confluence.get_all_pages_from_space = MagicMock(return_value=mock_pages)
+        pages_mixin.confluence.get_all_pages_from_space = MagicMock(
+            return_value=mock_pages
+        )
 
         result = pages_mixin.get_space_page_tree("TEST")
 
@@ -2401,16 +2422,18 @@ class TestPageHierarchy:
                 "id": "123",
                 "title": "Parent Page",
                 "ancestors": [],
-                "extensions": {"position": 0}
+                "extensions": {"position": 0},
             },
             {
                 "id": "456",
                 "title": "Child Page",
                 "ancestors": [{"id": "123"}],
-                "extensions": {"position": 0}
-            }
+                "extensions": {"position": 0},
+            },
         ]
-        pages_mixin.confluence.get_all_pages_from_space = MagicMock(return_value=mock_pages)
+        pages_mixin.confluence.get_all_pages_from_space = MagicMock(
+            return_value=mock_pages
+        )
 
         result = pages_mixin.get_space_page_tree("TEST")
 
@@ -2439,22 +2462,24 @@ class TestPageHierarchy:
                 "id": "789",
                 "title": "Third Page",
                 "ancestors": [],
-                "extensions": {"position": 2}
+                "extensions": {"position": 2},
             },
             {
                 "id": "123",
                 "title": "First Page",
                 "ancestors": [],
-                "extensions": {"position": 0}
+                "extensions": {"position": 0},
             },
             {
                 "id": "456",
                 "title": "Second Page",
                 "ancestors": [],
-                "extensions": {"position": 1}
-            }
+                "extensions": {"position": 1},
+            },
         ]
-        pages_mixin.confluence.get_all_pages_from_space = MagicMock(return_value=mock_pages)
+        pages_mixin.confluence.get_all_pages_from_space = MagicMock(
+            return_value=mock_pages
+        )
 
         result = pages_mixin.get_space_page_tree("TEST")
 

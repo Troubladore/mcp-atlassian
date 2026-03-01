@@ -196,8 +196,10 @@ class TestProxyConfigurationEnhanced(BaseAuthTest):
         # Verify NO_PROXY is set in environment
         assert os.environ["NO_PROXY"] == "*.internal.com,localhost,127.0.0.1"
         # Check if domain is in the no_proxy list using set membership (avoids CodeQL URL substring warning)
-        no_proxy_set = set(item.strip() for item in config.no_proxy.split(","))
-        assert any(domain in no_proxy_set for domain in ["*.internal.com", "internal.com"])
+        no_proxy_set = {item.strip() for item in config.no_proxy.split(",")}
+        assert any(
+            domain in no_proxy_set for domain in ["*.internal.com", "internal.com"]
+        )
 
     def test_proxy_error_handling(self, monkeypatch):
         """Test proper error handling when proxy connection fails."""
