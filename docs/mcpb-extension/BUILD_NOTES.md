@@ -335,9 +335,9 @@ Both mcp-atlassian and proxy containers:
 
 ### Access Control
 - **Pinned image version**: Uses `v0.11.10`, not `latest`
-- **Read-only by default**: Write tools require explicit opt-in
-- **Tool allowlist**: Only curated operations are exposed
-- **Delete operations never exposed**: `jira_delete_issue`, `confluence_delete_page` are hardcoded to be disabled
+- **Read-only by default**: `READ_ONLY_MODE=true` blocks all writes
+- **Delete blocked by default**: `ALLOW_DELETE_TOOLS=false` blocks deletes even when writes enabled
+- **Toolset filtering**: `TOOLSETS=default` exposes only 6 core toolsets (of 21 available)
 - **Credential encryption**: API tokens marked `"sensitive": true` in manifest
 
 ### Supply Chain
@@ -364,9 +364,10 @@ The test suite verifies:
 - [ ] No `-v` volume mounts
 - [ ] No `--network=host`
 - [ ] Proxy tmpfs mounts have `uid=31,gid=31`
-- [ ] Delete operations not in tool arrays
 - [ ] `atlassian_api_token` has `"sensitive": true` in manifest
-- [ ] `enable_write_tools` defaults to `"false"`
+- [ ] `READ_ONLY_MODE` defaults to `"true"`
+- [ ] `ALLOW_DELETE_TOOLS` defaults to `"false"`
+- [ ] No hardcoded tool arrays in server/index.js
 - [ ] squid.conf has no redundant ACL entries (Squid 6.6 compat)
 - [ ] squid.conf PID file on writable tmpfs path
 - [ ] Proxy builds, starts, and listens on port 3128
@@ -410,94 +411,11 @@ Tailscale network
 
 This is a separate project. The `.mcpb` bundle is self-contained.
 
-## Adding New MCP Tools - Critical Checklist
+## Tool Management
 
-**⚠️ IMPORTANT**: When adding new MCP tools to the upstream mcp-atlassian codebase, you MUST update the MCPB extension's tool whitelist or the tools will be filtered out at runtime!
+Tools are managed entirely by the upstream Python server's toolset system. The MCPB extension passes `TOOLSETS`, `READ_ONLY_MODE`, and `ALLOW_DELETE_TOOLS` env vars to Docker. No tool lists to maintain.
 
-### Required Steps for Every New Tool
-
-1. **Implement the tool** in `src/mcp_atlassian/servers/confluence.py` or `jira.py`
-   - Add `@confluence_mcp.tool()` or `@jira_mcp.tool()` decorator
-   - Write the async function with proper type hints
-   - Document with complete docstring
-
-2. **Write unit tests** in `tests/unit/confluence/` or `tests/unit/jira/`
-   - Test success cases
-   - Test error handling
-   - Test edge cases
-
-3. **Update documentation** in `docs/tools-reference.mdx`
-   - Add to Key Tools card (if major feature)
-   - Add to Complete Tool List (Read or Write section)
-   - Add detailed documentation if needed
-
-4. **⚠️ CRITICAL: Update MCPB extension whitelist** in `docs/mcpb-extension/server/index.js`
-   - Add to `READ_TOOLS` array if read-only tool
-   - Add to `WRITE_TOOLS` array if write/destructive tool
-   - **Failure to do this = tool won't appear in Claude Desktop**
-
-5. **Update MCPB manifest** in `docs/mcpb-extension/manifest.json`
-   - Add tool to `tools` array with name and description
-   - This is for metadata/discovery only (not filtering)
-
-6. **Bump versions and rebuild**
-   - Tag new Docker image version (e.g., v0.11.14)
-   - Build and push Docker image to GHCR
-   - Bump MCPB extension version in manifest.json (e.g., 1.0.16)
-   - Update IMAGE constant in server/index.js
-   - Run `mcpb pack` to build new .mcpb file
-
-### Example: Adding a New Tool
-
-```javascript
-// In docs/mcpb-extension/server/index.js:
-
-const READ_TOOLS = [
-  "confluence_search",
-  "confluence_get_page",
-  // ... existing tools ...
-  "confluence_new_tool_name",  // ← ADD HERE FOR READ-ONLY TOOLS
-];
-
-const WRITE_TOOLS = [
-  "confluence_create_page",
-  "confluence_update_page",
-  // ... existing tools ...
-  "confluence_destructive_operation",  // ← ADD HERE FOR WRITE TOOLS
-];
-```
-
-### Why This Matters
-
-The MCPB extension uses an explicit tool whitelist (`ENABLED_TOOLS` environment variable) passed to the Docker container. This security feature:
-- Prevents accidental exposure of destructive operations
-- Allows users to control which tools are enabled
-- Provides defense-in-depth security
-
-**If you forget to update the whitelist**, the tool will:
-- ✅ Exist in the Docker image code
-- ✅ Be properly decorated with `@tool()`
-- ✅ Be listed in the manifest.json
-- ❌ **NOT appear in Claude Desktop's tool list**
-- ❌ Be silently filtered out at runtime
-
-### Symptoms of Missing Whitelist Entry
-
-- Tool search in Claude Desktop shows 0 results
-- Attempting to use the tool shows "No such tool available"
-- Docker container logs show tool in startup but not in `tools/list` response
-- `ENABLED_TOOLS` env var in container doesn't include the new tool
-
-### Quick Verification
-
-After deploying a new MCPB version:
-```bash
-# Check what tools are actually enabled in running container
-docker exec <container-name> sh -c "env | grep ENABLED_TOOLS"
-
-# Search for your new tool name
-docker logs <container-name> 2>&1 | grep "new_tool_name"
-```
+See `src/mcp_atlassian/utils/toolsets.py` for toolset definitions.
 
 ## Troubleshooting
 
