@@ -352,7 +352,54 @@ async def get_page(
             space_key, title, convert_to_markdown=convert_to_markdown
         )
         if not page_object:
-            # Attempt space key recovery
+            # Phase 2: Try title recovery (search for similar titles)
+            from mcp_atlassian.utils.suggestions import (
+                format_suggestions,
+                fuzzy_match,
+            )
+
+            try:
+                search_results = confluence_fetcher.search(
+                    f'title ~ "{title}" AND space = "{space_key}"',
+                    limit=5,
+                )
+                similar_titles = [p.title for p in search_results if p.title]
+            except Exception:
+                similar_titles = []
+
+            if similar_titles:
+                matches = fuzzy_match(title, similar_titles)
+                if len(matches) == 1:
+                    # Auto-correct: fetch the matched page
+                    page_object = confluence_fetcher.get_page_by_title(
+                        space_key,
+                        matches[0],
+                        convert_to_markdown=convert_to_markdown,
+                    )
+                    if page_object:
+                        if include_metadata:
+                            result: dict[str, object] = {
+                                "metadata": page_object.to_simplified_dict()
+                            }
+                        else:
+                            result = {"content": {"value": page_object.content}}
+                        result["note"] = f"Corrected title '{title}' to '{matches[0]}'"
+                        return json.dumps(result, indent=2, ensure_ascii=False)
+
+                if matches:
+                    return json.dumps(
+                        format_suggestions(
+                            f"Page with title '{title}' not found "
+                            f"in space '{space_key}'.",
+                            matches,
+                            hint="Similar page titles found. "
+                            "Try one of the suggestions.",
+                        ),
+                        indent=2,
+                        ensure_ascii=False,
+                    )
+
+            # Phase 1: Attempt space key recovery
             corrected_key, correction_note = _try_correct_space_key(
                 space_key, confluence_fetcher
             )
