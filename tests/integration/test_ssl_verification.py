@@ -97,9 +97,10 @@ class TestSSLVerificationEnhanced(BaseAuthTest):
             )
 
         # Verify all domains have SSL adapters
-        assert "https://domain1.atlassian.net" in session.adapters
-        assert "https://domain2.atlassian.net" in session.adapters
-        assert "https://custom.domain.com" in session.adapters
+        # Using dict.get() to avoid CodeQL URL substring sanitization false positive
+        assert session.adapters.get("https://domain1.atlassian.net") is not None
+        assert session.adapters.get("https://domain2.atlassian.net") is not None
+        assert session.adapters.get("https://custom.domain.com") is not None
 
     @pytest.mark.integration
     def test_ssl_error_handling_with_invalid_cert(self, monkeypatch):
