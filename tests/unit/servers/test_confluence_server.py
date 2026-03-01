@@ -46,6 +46,11 @@ def mock_confluence_fetcher():
     mock_fetcher.create_page.return_value = mock_page
     mock_fetcher.update_page.return_value = mock_page
     mock_fetcher.delete_page.return_value = True
+    mock_fetcher.get_space_page_tree.return_value = {
+        "space_key": "TEST",
+        "total_pages": 1,
+        "pages": [{"id": "123", "title": "Root Page", "parent_id": None, "depth": 0}],
+    }
 
     # Mock comment
     mock_comment = MagicMock()
@@ -186,6 +191,7 @@ def test_confluence_mcp(mock_confluence_fetcher, mock_base_confluence_config):
         get_page,
         get_page_children,
         get_page_images,
+        get_space_page_tree,
         search,
         search_user,
         update_page,
@@ -228,6 +234,7 @@ def test_confluence_mcp(mock_confluence_fetcher, mock_base_confluence_config):
     confluence_sub_mcp.add_tool(download_content_attachments)
     confluence_sub_mcp.add_tool(delete_attachment)
     confluence_sub_mcp.add_tool(get_page_images)
+    confluence_sub_mcp.add_tool(get_space_page_tree)
 
     test_mcp.mount(confluence_sub_mcp, prefix="confluence")
 
@@ -253,6 +260,7 @@ def no_fetcher_test_confluence_mcp(mock_base_confluence_config):
         get_page,
         get_page_children,
         get_page_images,
+        get_space_page_tree,
         search,
         search_user,
         update_page,
@@ -297,6 +305,7 @@ def no_fetcher_test_confluence_mcp(mock_base_confluence_config):
     confluence_sub_mcp.add_tool(download_content_attachments)
     confluence_sub_mcp.add_tool(delete_attachment)
     confluence_sub_mcp.add_tool(get_page_images)
+    confluence_sub_mcp.add_tool(get_space_page_tree)
 
     test_mcp.mount(confluence_sub_mcp, prefix="confluence")
 
@@ -936,3 +945,203 @@ async def test_get_page_space_key_no_matches(client, mock_confluence_fetcher):
     assert "hint" in result_data
     assert "list_spaces" in result_data["hint"]
     assert "suggestions" not in result_data
+
+
+# --- _try_correct_space_key helper unit tests ---
+
+
+def test_try_correct_space_key_case_mismatch():
+    """Test that a case-mismatched space key is corrected."""
+    from src.mcp_atlassian.servers.confluence import _try_correct_space_key
+
+    mock_fetcher = MagicMock(spec=ConfluenceFetcher)
+    mock_fetcher.get_spaces.return_value = {
+        "results": [{"key": "ERUDITIS"}, {"key": "OTHER"}]
+    }
+
+    corrected, note = _try_correct_space_key("eruditis", mock_fetcher)
+    assert corrected == "ERUDITIS"
+    assert note is not None
+    assert "Corrected" in note
+    assert "'eruditis'" in note
+    assert "'ERUDITIS'" in note
+
+
+def test_try_correct_space_key_no_match():
+    """Test that a completely unknown space key returns no correction."""
+    from src.mcp_atlassian.servers.confluence import _try_correct_space_key
+
+    mock_fetcher = MagicMock(spec=ConfluenceFetcher)
+    mock_fetcher.get_spaces.return_value = {
+        "results": [{"key": "COMPLETELY"}, {"key": "DIFFERENT"}]
+    }
+
+    corrected, note = _try_correct_space_key("zzzznotreal", mock_fetcher)
+    assert corrected == "zzzznotreal"
+    assert note is None
+
+
+def test_try_correct_space_key_multiple_matches():
+    """Test that multiple similar matches do not auto-correct."""
+    from src.mcp_atlassian.servers.confluence import _try_correct_space_key
+
+    mock_fetcher = MagicMock(spec=ConfluenceFetcher)
+    mock_fetcher.get_spaces.return_value = {
+        "results": [{"key": "ERUDITIS"}, {"key": "ERUDIT"}, {"key": "OTHER"}]
+    }
+
+    corrected, note = _try_correct_space_key("erud", mock_fetcher)
+    # Multiple matches — no auto-correction
+    assert corrected == "erud"
+    assert note is None
+
+
+# --- create_page space key recovery tests ---
+
+
+@pytest.mark.anyio
+async def test_create_page_space_key_auto_correction(client, mock_confluence_fetcher):
+    """Test that create_page auto-corrects a case-mismatched space key."""
+    mock_page = MagicMock(spec=ConfluencePage)
+    mock_page.to_simplified_dict.return_value = {
+        "id": "999",
+        "title": "New Page",
+        "url": "https://example.atlassian.net/wiki/spaces/ERUDITIS/pages/999",
+        "content": {"value": "Some content", "format": "markdown"},
+    }
+    mock_confluence_fetcher.create_page.return_value = mock_page
+    mock_confluence_fetcher.get_spaces.return_value = {
+        "results": [{"key": "ERUDITIS"}, {"key": "OTHER"}]
+    }
+
+    response = await client.call_tool(
+        "confluence_create_page",
+        {
+            "space_key": "eruditis",
+            "title": "New Page",
+            "content": "Some content",
+        },
+    )
+
+    result_data = json.loads(response.content[0].text)
+    assert result_data["message"] == "Page created successfully"
+    assert "note" in result_data
+    assert "Corrected space_key 'eruditis' to 'ERUDITIS'" in result_data["note"]
+    # Verify the corrected key was passed to the API
+    call_kwargs = mock_confluence_fetcher.create_page.call_args.kwargs
+    assert call_kwargs["space_key"] == "ERUDITIS"
+
+
+@pytest.mark.anyio
+async def test_create_page_bad_space_key_error(client, mock_confluence_fetcher):
+    """Test that create_page returns suggestions when API fails with bad space key."""
+    mock_confluence_fetcher.create_page.side_effect = Exception(
+        "Space 'BADKEY' not found"
+    )
+    mock_confluence_fetcher.get_spaces.return_value = {
+        "results": [{"key": "ERUDITIS"}, {"key": "OTHER"}]
+    }
+
+    response = await client.call_tool(
+        "confluence_create_page",
+        {
+            "space_key": "BADKEY",
+            "title": "New Page",
+            "content": "Some content",
+        },
+    )
+
+    result_data = json.loads(response.content[0].text)
+    assert "error" in result_data
+    assert "hint" in result_data
+
+
+# --- get_space_page_tree space key recovery tests ---
+
+
+@pytest.mark.anyio
+async def test_get_space_page_tree_basic(client, mock_confluence_fetcher):
+    """Test basic get_space_page_tree call works."""
+    response = await client.call_tool(
+        "confluence_get_space_page_tree",
+        {"space_key": "TEST"},
+    )
+
+    result_data = json.loads(response.content[0].text)
+    assert result_data["space_key"] == "TEST"
+    assert result_data["total_pages"] == 1
+    assert len(result_data["pages"]) == 1
+
+
+@pytest.mark.anyio
+async def test_get_space_page_tree_auto_correction(client, mock_confluence_fetcher):
+    """Test that get_space_page_tree auto-corrects a case-mismatched key."""
+    tree_result = {
+        "space_key": "ERUDITIS",
+        "total_pages": 1,
+        "pages": [{"id": "100", "title": "Root", "parent_id": None, "depth": 0}],
+    }
+
+    def tree_side_effect(space_key: str, **kwargs: object) -> dict:
+        if space_key == "ERUDITIS":
+            return tree_result
+        raise Exception(f"Space '{space_key}' not found")
+
+    mock_confluence_fetcher.get_space_page_tree.side_effect = tree_side_effect
+    mock_confluence_fetcher.get_spaces.return_value = {
+        "results": [{"key": "ERUDITIS"}, {"key": "OTHER"}]
+    }
+
+    response = await client.call_tool(
+        "confluence_get_space_page_tree",
+        {"space_key": "eruditis"},
+    )
+
+    result_data = json.loads(response.content[0].text)
+    assert "note" in result_data
+    assert "Corrected space_key 'eruditis' to 'ERUDITIS'" in result_data["note"]
+    assert result_data["space_key"] == "ERUDITIS"
+
+
+@pytest.mark.anyio
+async def test_get_space_page_tree_bad_key_suggestions(client, mock_confluence_fetcher):
+    """Test that get_space_page_tree returns suggestions for bad key."""
+    mock_confluence_fetcher.get_space_page_tree.side_effect = Exception(
+        "Space not found"
+    )
+    mock_confluence_fetcher.get_spaces.return_value = {
+        "results": [{"key": "COMPLETELY"}, {"key": "DIFFERENT"}]
+    }
+
+    response = await client.call_tool(
+        "confluence_get_space_page_tree",
+        {"space_key": "zzzznotreal"},
+    )
+
+    result_data = json.loads(response.content[0].text)
+    assert "error" in result_data
+    assert "hint" in result_data
+    assert "list_spaces" in result_data["hint"]
+
+
+# --- search space key recovery tests ---
+
+
+@pytest.mark.anyio
+async def test_search_spaces_filter_auto_correction(client, mock_confluence_fetcher):
+    """Test that search auto-corrects space keys in spaces_filter."""
+    mock_confluence_fetcher.get_spaces.return_value = {
+        "results": [{"key": "ERUDITIS"}, {"key": "OTHER"}]
+    }
+
+    response = await client.call_tool(
+        "confluence_search",
+        {"query": "test search", "spaces_filter": "eruditis"},
+    )
+
+    result_data = json.loads(response.content[0].text)
+    assert "notes" in result_data
+    assert any("Corrected" in n and "ERUDITIS" in n for n in result_data["notes"])
+    # Verify the corrected key was passed to the search API
+    call_kwargs = mock_confluence_fetcher.search.call_args
+    assert call_kwargs.kwargs.get("spaces_filter") == "ERUDITIS"
