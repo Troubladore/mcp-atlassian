@@ -644,6 +644,19 @@ async def get_space_page_tree(
     result: dict[str, object] = (
         tree_data if isinstance(tree_data, dict) else {"data": tree_data}
     )
+
+    # Add pagination metadata
+    total_pages = tree_data.get("total_pages", 0) if isinstance(tree_data, dict) else 0
+    if total_pages >= limit:
+        result["has_more"] = True
+        result["next_start"] = limit
+        result["hint"] = (
+            f"Results may be truncated at {limit}. "
+            "Increase limit or use pagination to see more."
+        )
+    else:
+        result["has_more"] = False
+
     if correction_note:
         result["note"] = correction_note
     return json.dumps(result, indent=2, ensure_ascii=False)

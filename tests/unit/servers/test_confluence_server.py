@@ -1124,6 +1124,52 @@ async def test_get_space_page_tree_bad_key_suggestions(client, mock_confluence_f
     assert "list_spaces" in result_data["hint"]
 
 
+# --- get_space_page_tree pagination metadata tests ---
+
+
+@pytest.mark.anyio
+async def test_get_space_page_tree_truncated_results(client, mock_confluence_fetcher):
+    """Test that truncated results include has_more and next_start metadata."""
+    mock_confluence_fetcher.get_space_page_tree.return_value = {
+        "space_key": "TEST",
+        "total_pages": 100,
+        "pages": [{"id": str(i), "title": f"Page {i}"} for i in range(100)],
+    }
+
+    response = await client.call_tool(
+        "confluence_get_space_page_tree",
+        {"space_key": "TEST", "limit": 100},
+    )
+
+    result_data = json.loads(response.content[0].text)
+    assert result_data["has_more"] is True
+    assert result_data["next_start"] == 100
+    assert "hint" in result_data
+    assert "truncated" in result_data["hint"]
+
+
+@pytest.mark.anyio
+async def test_get_space_page_tree_non_truncated_results(
+    client, mock_confluence_fetcher
+):
+    """Test that non-truncated results have has_more=false and no hint."""
+    mock_confluence_fetcher.get_space_page_tree.return_value = {
+        "space_key": "TEST",
+        "total_pages": 50,
+        "pages": [{"id": str(i), "title": f"Page {i}"} for i in range(50)],
+    }
+
+    response = await client.call_tool(
+        "confluence_get_space_page_tree",
+        {"space_key": "TEST", "limit": 100},
+    )
+
+    result_data = json.loads(response.content[0].text)
+    assert result_data["has_more"] is False
+    assert "next_start" not in result_data
+    assert "hint" not in result_data
+
+
 # --- search space key recovery tests ---
 
 
