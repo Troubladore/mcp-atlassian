@@ -6,8 +6,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from fastmcp.exceptions import NotFoundError
 
-from mcp_atlassian.servers.main import UserTokenMiddleware, main_mcp
+from mcp_atlassian.servers.main import AtlassianMCP, UserTokenMiddleware, main_mcp
 
 
 @pytest.mark.anyio
@@ -538,3 +539,196 @@ class TestUserTokenMiddleware:
             )
             is True
         )
+
+
+class TestCallToolMcpErrorMessages:
+    """Tests for AtlassianMCP._call_tool_mcp toolset-aware error messages."""
+
+    @staticmethod
+    def _make_mock_tool(name: str, tags: set[str] | None = None) -> MagicMock:
+        """Create a mock FastMCPTool with the given name and tags."""
+        tool = MagicMock()
+        tool.tags = tags or set()
+        # to_mcp_tool returns an MCPTool-like object with a name
+        mcp_tool = MagicMock()
+        mcp_tool.name = name
+        tool.to_mcp_tool.return_value = mcp_tool
+        return tool
+
+    @pytest.fixture
+    def mcp_server(self) -> AtlassianMCP:
+        """Create a minimal AtlassianMCP instance for testing."""
+        return AtlassianMCP(name="Test MCP")
+
+    @pytest.mark.anyio
+    async def test_unknown_tool_raises_not_found(
+        self, mcp_server: AtlassianMCP
+    ) -> None:
+        """Calling a completely nonexistent tool returns generic error."""
+        with (
+            patch.object(
+                mcp_server,
+                "_list_tools_mcp",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch.object(
+                mcp_server,
+                "get_tools",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            pytest.raises(NotFoundError, match="Unknown tool: 'no_such_tool'"),
+        ):
+            await mcp_server._call_tool_mcp("no_such_tool", {})
+
+    @pytest.mark.anyio
+    async def test_write_tool_blocked_by_read_only(
+        self, mcp_server: AtlassianMCP
+    ) -> None:
+        """Write tool filtered by read-only mode shows helpful message."""
+        write_tool = self._make_mock_tool(
+            "jira_create_issue",
+            {"jira", "write", "toolset:jira_issues"},
+        )
+        with (
+            patch.object(
+                mcp_server,
+                "_list_tools_mcp",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch.object(
+                mcp_server,
+                "get_tools",
+                new_callable=AsyncMock,
+                return_value={"jira_create_issue": write_tool},
+            ),
+            pytest.raises(NotFoundError, match="READ_ONLY_MODE"),
+        ):
+            await mcp_server._call_tool_mcp("jira_create_issue", {})
+
+    @pytest.mark.anyio
+    async def test_delete_tool_blocked(self, mcp_server: AtlassianMCP) -> None:
+        """Delete tool filtered shows ALLOW_DELETE_TOOLS message."""
+        delete_tool = self._make_mock_tool(
+            "jira_delete_issue",
+            {"jira", "delete", "toolset:jira_issues"},
+        )
+        with (
+            patch.object(
+                mcp_server,
+                "_list_tools_mcp",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch.object(
+                mcp_server,
+                "get_tools",
+                new_callable=AsyncMock,
+                return_value={"jira_delete_issue": delete_tool},
+            ),
+            pytest.raises(NotFoundError, match="ALLOW_DELETE_TOOLS"),
+        ):
+            await mcp_server._call_tool_mcp("jira_delete_issue", {})
+
+    @pytest.mark.anyio
+    async def test_tool_in_disabled_toolset(self, mcp_server: AtlassianMCP) -> None:
+        """Tool in a disabled toolset names the toolset and shows config hint."""
+        agile_tool = self._make_mock_tool(
+            "jira_get_board",
+            {"jira", "read", "toolset:jira_agile"},
+        )
+        with (
+            patch.object(
+                mcp_server,
+                "_list_tools_mcp",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch.object(
+                mcp_server,
+                "get_tools",
+                new_callable=AsyncMock,
+                return_value={"jira_get_board": agile_tool},
+            ),
+            pytest.raises(NotFoundError, match="'jira_agile' toolset"),
+        ):
+            await mcp_server._call_tool_mcp("jira_get_board", {})
+
+    @pytest.mark.anyio
+    async def test_toolset_error_includes_config_hint(
+        self, mcp_server: AtlassianMCP
+    ) -> None:
+        """Error for disabled toolset includes TOOLSETS env var hint."""
+        agile_tool = self._make_mock_tool(
+            "jira_get_board",
+            {"jira", "read", "toolset:jira_agile"},
+        )
+        with (
+            patch.object(
+                mcp_server,
+                "_list_tools_mcp",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch.object(
+                mcp_server,
+                "get_tools",
+                new_callable=AsyncMock,
+                return_value={"jira_get_board": agile_tool},
+            ),
+            pytest.raises(NotFoundError, match="TOOLSETS=default,jira_agile"),
+        ):
+            await mcp_server._call_tool_mcp("jira_get_board", {})
+
+    @pytest.mark.anyio
+    async def test_available_tool_proceeds_normally(
+        self, mcp_server: AtlassianMCP
+    ) -> None:
+        """Tool present in filtered list delegates to base class."""
+        listed_tool = MagicMock()
+        listed_tool.name = "jira_search"
+
+        with (
+            patch.object(
+                mcp_server,
+                "_list_tools_mcp",
+                new_callable=AsyncMock,
+                return_value=[listed_tool],
+            ),
+            patch(
+                "mcp_atlassian.servers.main.FastMCP._call_tool_mcp",
+                new_callable=AsyncMock,
+                return_value=[MagicMock()],
+            ) as mock_super,
+        ):
+            result = await mcp_server._call_tool_mcp("jira_search", {"jql": "x"})
+            mock_super.assert_called_once_with("jira_search", {"jql": "x"})
+            assert result is not None
+
+    @pytest.mark.anyio
+    async def test_filtered_tool_without_tags_gives_generic_message(
+        self, mcp_server: AtlassianMCP
+    ) -> None:
+        """Tool with no special tags gives a generic configuration message."""
+        bare_tool = self._make_mock_tool("mystery_tool", {"jira"})
+        with (
+            patch.object(
+                mcp_server,
+                "_list_tools_mcp",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch.object(
+                mcp_server,
+                "get_tools",
+                new_callable=AsyncMock,
+                return_value={"mystery_tool": bare_tool},
+            ),
+            pytest.raises(
+                NotFoundError,
+                match="not available in the current configuration",
+            ),
+        ):
+            await mcp_server._call_tool_mcp("mystery_tool", {})
