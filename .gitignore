@@ -88,3 +88,6 @@ docs/mcpb-extension/eruditis-atlassian-*.mcpb
 
 # Dev docs (local task documents)
 dev/
+
+# Worktrees
+.worktrees/
