@@ -8,13 +8,25 @@ This is a fork of `sooperset/mcp-atlassian`. Remotes:
 - `origin` = `Troubladore/mcp-atlassian` (our fork)
 - `upstream` = `sooperset/mcp-atlassian` (upstream)
 
-Our development branch is `eruditis/main`.
+Our development branch is `eruditis/main`. Feature branches merge into `eruditis/main` via PR. The `main` branch is a clean mirror of upstream.
+
+## Developer Setup
+
+```bash
+uv run pre-commit install   # Required: install git hooks for formatting/lint
+```
+
+## Key Commands
+
+```bash
+uv run pytest tests/ -x              # Run tests (stop on first failure)
+uv run ruff format .                  # Format code
+uv run ruff check --fix .            # Lint and auto-fix
+```
 
 ## Creating Pull Requests
 
 **Use `gh pr create` with REST API (the default).** Do NOT use GraphQL API calls — they fail with personal tokens on this repo.
-
-### Standard PR command
 
 ```bash
 gh pr create \
@@ -33,11 +45,9 @@ EOF
 )"
 ```
 
-### Key points
 - Always specify `--repo Troubladore/mcp-atlassian` explicitly
 - Base branch is `eruditis/main` (not `main`)
 - Push your branch to `origin` before creating the PR
-- Use heredoc for the body to handle multiline markdown
 
 ## Creating GitHub Issues
 
@@ -46,46 +56,7 @@ gh issue create \
   --repo Troubladore/mcp-atlassian \
   --label enhancement \
   --title "Issue title" \
-  --body "$(cat <<'EOF'
-Issue body here
-EOF
-)"
-```
-
-## Developer Setup
-
-After cloning, install the pre-commit hook so formatting and lint checks run on every commit:
-
-```bash
-uv run pre-commit install
-```
-
-## Running Tests
-
-```bash
-uv run pytest tests/ -x
-```
-
-## Linting and Formatting
-
-Pre-commit runs `ruff-format`, `ruff`, and `mypy` automatically on commit. To run manually:
-
-```bash
-uv run ruff format .
-uv run ruff check --fix .
-```
-
-## Merging Upstream
-
-When merging `upstream/main` into `eruditis/main`, always run the formatter after resolving conflicts — conflict resolution creates unformatted code:
-
-```bash
-git fetch upstream
-git merge upstream/main
-# resolve conflicts...
-uv run ruff format .
-uv run ruff check --fix .
-uv run pytest tests/ -x
+  --body "Issue body here"
 ```
 
 ## Docker
