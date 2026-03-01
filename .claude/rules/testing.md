@@ -14,6 +14,14 @@ uv run pytest tests/ -x -q       # Quiet output
 uv run pytest tests/unit/ -x     # Unit tests only
 ```
 
+## Warnings policy
+
+**Treat warnings as errors.** Fix them when encountered — don't suppress or ignore.
+
+- Run with `-W error::RuntimeWarning` to catch unawaited coroutines
+- Unawaited coroutines from mocked `asyncio.run`: call `.close()` on captured coroutines in test teardown
+- Fix warnings when encountered, even if pre-existing
+
 ## Test structure
 
 - `tests/unit/` — unit tests (mock-based, fast)
