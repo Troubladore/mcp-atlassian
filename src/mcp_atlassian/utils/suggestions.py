@@ -1,6 +1,15 @@
 """Fuzzy matching and suggestion utilities for error recovery."""
 
+from __future__ import annotations
+
+import logging
 from difflib import get_close_matches
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mcp_atlassian.confluence import ConfluenceFetcher
+
+logger = logging.getLogger(__name__)
 
 
 def fuzzy_match(
@@ -78,3 +87,30 @@ def format_suggestions(
     if hint:
         result["hint"] = hint
     return result
+
+
+def suggest_spaces(
+    space_key_input: str,
+    fetcher: ConfluenceFetcher,
+) -> list[str]:
+    """Suggest similar space keys when the given key is invalid.
+
+    Fetches available spaces from Confluence and fuzzy-matches against them.
+    Designed to be lightweight -- single API call, no caching.
+
+    Args:
+        space_key_input: The invalid space key the user provided.
+        fetcher: A ConfluenceFetcher instance.
+
+    Returns:
+        List of similar space keys, best matches first.
+    """
+    try:
+        spaces_response = fetcher.get_spaces(limit=100)
+        results = spaces_response.get("results", [])
+        space_keys = [s["key"] for s in results if "key" in s]
+    except Exception:
+        logger.debug("Failed to fetch spaces for suggestions", exc_info=True)
+        return []
+
+    return fuzzy_match(space_key_input, space_keys)

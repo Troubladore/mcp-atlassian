@@ -1,6 +1,12 @@
 """Tests for suggestion/fuzzy matching utilities."""
 
-from mcp_atlassian.utils.suggestions import format_suggestions, fuzzy_match
+from unittest.mock import MagicMock
+
+from mcp_atlassian.utils.suggestions import (
+    format_suggestions,
+    fuzzy_match,
+    suggest_spaces,
+)
 
 
 class TestFuzzyMatch:
@@ -67,3 +73,36 @@ class TestFormatSuggestions:
         result = format_suggestions("Not found", [])
         assert result["suggestions"] == []
         assert "hint" not in result
+
+
+class TestSuggestSpaces:
+    """Tests for suggest_spaces()."""
+
+    def _make_fetcher(self, space_keys: list[str]) -> MagicMock:
+        """Create a mock fetcher returning given space keys."""
+        fetcher = MagicMock()
+        results = [{"key": k, "name": f"Space {k}"} for k in space_keys]
+        fetcher.get_spaces.return_value = {"results": results}
+        return fetcher
+
+    def test_exact_case_insensitive(self):
+        fetcher = self._make_fetcher(["ERUDITIS", "OTHER"])
+        result = suggest_spaces("eruditis", fetcher)
+        assert result == ["ERUDITIS"]
+
+    def test_no_match(self):
+        fetcher = self._make_fetcher(["ALPHA", "BETA"])
+        result = suggest_spaces("zzzzz", fetcher)
+        assert result == []
+
+    def test_multiple_matches(self):
+        fetcher = self._make_fetcher(["ERUDITIS", "ERUDITISARCHIVE", "OTHER"])
+        result = suggest_spaces("erud", fetcher)
+        assert "ERUDITIS" in result
+        assert "ERUDITISARCHIVE" in result
+
+    def test_fetcher_error_returns_empty(self):
+        fetcher = MagicMock()
+        fetcher.get_spaces.side_effect = Exception("API error")
+        result = suggest_spaces("test", fetcher)
+        assert result == []
