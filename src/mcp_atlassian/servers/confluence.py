@@ -53,14 +53,15 @@ def parse_page_id_from_url(page_id_or_url: str | int | None) -> str | None:
 
     # Try modern URL format: /pages/123456/Title
     import re
-    match = re.search(r'/pages/(\d+)', page_str)
+
+    match = re.search(r"/pages/(\d+)", page_str)
     if match:
         extracted = match.group(1)
         logger.info(f"Auto-extracted page_id={extracted} from URL")
         return extracted
 
     # Try legacy format: ?pageId=123456
-    match = re.search(r'[?&]pageId=(\d+)', page_str)
+    match = re.search(r"[?&]pageId=(\d+)", page_str)
     if match:
         extracted = match.group(1)
         logger.info(f"Auto-extracted page_id={extracted} from URL")

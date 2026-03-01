@@ -249,7 +249,7 @@ class PagesMixin(ConfluenceClient):
                 existing = self.confluence.get_page_property(page_id, property_key)
                 if existing and isinstance(existing, dict):
                     existing_version = existing.get("version", {}).get("number")
-            except Exception:
+            except Exception:  # noqa: S110
                 # Property doesn't exist yet, that's fine - we'll create it
                 pass
 
@@ -772,11 +772,7 @@ class PagesMixin(ConfluenceClient):
             )
 
             if not pages:
-                return {
-                    "space_key": space_key,
-                    "total_pages": 0,
-                    "pages": []
-                }
+                return {"space_key": space_key, "total_pages": 0, "pages": []}
 
             # Build flat list with parent_id and depth
             result_pages = []
@@ -797,13 +793,15 @@ class PagesMixin(ConfluenceClient):
                     parent_id = None
                     depth = 0
 
-                result_pages.append({
-                    "id": page_id,
-                    "title": title,
-                    "parent_id": parent_id,
-                    "position": position,
-                    "depth": depth,
-                })
+                result_pages.append(
+                    {
+                        "id": page_id,
+                        "title": title,
+                        "parent_id": parent_id,
+                        "position": position,
+                        "depth": depth,
+                    }
+                )
 
             # Sort by depth first (breadth-first), then by position
             # Note: position can be 0 (valid), so check for None explicitly
@@ -811,14 +809,14 @@ class PagesMixin(ConfluenceClient):
                 key=lambda p: (
                     p["depth"],
                     p["position"] if p["position"] is not None else 999999,
-                    p["title"]
+                    p["title"],
                 )
             )
 
             return {
                 "space_key": space_key,
                 "total_pages": len(result_pages),
-                "pages": result_pages
+                "pages": result_pages,
             }
 
         except Exception as e:
@@ -865,7 +863,9 @@ class PagesMixin(ConfluenceClient):
             url = f"{self.config.url}/rest/api/content/{page_id}/move/{position}/{target_id}"
 
             # Use the atlassian-python-api session for authentication
-            response = self.confluence._session.put(url, headers={"X-Atlassian-Token": "no-check"})
+            response = self.confluence._session.put(
+                url, headers={"X-Atlassian-Token": "no-check"}
+            )
             response.raise_for_status()
 
             logger.info(
@@ -876,7 +876,9 @@ class PagesMixin(ConfluenceClient):
             logger.error(f"HTTP error moving page '{page_id}': {e}")
             if e.response is not None:
                 content = e.response.text or ""
-                content_preview = content[:200] + "..." if len(content) > 200 else content
+                content_preview = (
+                    content[:200] + "..." if len(content) > 200 else content
+                )
                 logger.error(
                     f"Response status: {e.response.status_code}, content: {content_preview}"
                 )
