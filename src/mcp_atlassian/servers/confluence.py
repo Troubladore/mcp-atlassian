@@ -265,9 +265,45 @@ async def get_page(
             space_key, title, convert_to_markdown=convert_to_markdown
         )
         if not page_object:
+            # Attempt space key recovery
+            from mcp_atlassian.utils.suggestions import (
+                format_suggestions,
+                suggest_spaces,
+            )
+
+            suggestions = suggest_spaces(space_key, confluence_fetcher)
+            if len(suggestions) == 1 and suggestions[0].lower() == space_key.lower():
+                # High-confidence match (case mismatch) — auto-correct
+                corrected_key = suggestions[0]
+                page_object = confluence_fetcher.get_page_by_title(
+                    corrected_key, title, convert_to_markdown=convert_to_markdown
+                )
+                if page_object:
+                    if include_metadata:
+                        result = {"metadata": page_object.to_simplified_dict()}
+                    else:
+                        result = {"content": {"value": page_object.content}}
+                    result["note"] = (
+                        f"Corrected space_key '{space_key}' to '{corrected_key}'"
+                    )
+                    return json.dumps(result, indent=2, ensure_ascii=False)
+
+            # Could not auto-correct — return suggestions
+            if suggestions:
+                return json.dumps(
+                    format_suggestions(
+                        f"Page with title '{title}' not found in space '{space_key}'.",
+                        suggestions,
+                        hint="Space keys are case-sensitive uppercase. Try one of the suggestions.",
+                    ),
+                    indent=2,
+                    ensure_ascii=False,
+                )
+
             return json.dumps(
                 {
-                    "error": f"Page with title '{title}' not found in space '{space_key}'."
+                    "error": f"Page with title '{title}' not found in space '{space_key}'.",
+                    "hint": "Use the list_spaces tool to discover available space keys.",
                 },
                 indent=2,
                 ensure_ascii=False,
