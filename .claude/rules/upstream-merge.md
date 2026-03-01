@@ -11,21 +11,31 @@ This is a fork of `sooperset/mcp-atlassian`. Remotes:
 - `origin` = `Troubladore/mcp-atlassian` (our fork)
 - `upstream` = `sooperset/mcp-atlassian` (upstream)
 
-## Merge process
+## Sync process (rebase, not merge)
 
-1. `git fetch upstream && git merge upstream/main` into `eruditis/main`
-2. Resolve conflicts — favor upstream's structure, preserve fork features
-3. Run `uv run ruff format .` and `uv run ruff check --fix .` after resolution
-4. Run `uv run pytest tests/ -x` to verify
-5. Create feature branch and PR to `eruditis/main`
+We rebase `eruditis/main` onto `main` to keep a clean stack of fork-specific commits.
 
-## Fork-specific features to preserve during merges
+```bash
+git checkout main && git pull upstream main && git push origin main
+git checkout eruditis/main && git rebase main
+# Resolve conflicts, then:
+uv run ruff format . && uv run ruff check --fix .
+uv run pytest tests/ -x
+git push --force-with-lease origin eruditis/main
+```
 
-- Page hierarchy navigation (get_page_ancestors, get_space_page_tree, list_spaces, move_page_position)
-- Page width support (page_width parameter on create/update)
-- URL auto-parsing (parse_page_id_from_url helper)
+## Fork-specific features to preserve during rebases
+
+- Error recovery / fuzzy matching (utils/suggestions.py, servers/confluence.py, servers/main.py)
+- Page hierarchy (get_space_page_tree in pages.py and servers/confluence.py)
+- Page width support (page_width on ConfluencePage model, create/update)
+- Delete safety filter (ALLOW_DELETE_TOOLS, "delete" tag filtering)
+- URL security fix (endswith() in urls.py)
 - MCPB extension (docs/mcpb-extension/)
 - Security docs (security/)
+- Fork CI config, Claude rules, plans docs
+
+**Note:** Some of these have been proposed upstream (see docs/UPSTREAM_CONTRIBUTIONS.md). As upstream merges them, they leave our fork diff and no longer need preserving.
 
 ## Where conflicts typically occur
 
