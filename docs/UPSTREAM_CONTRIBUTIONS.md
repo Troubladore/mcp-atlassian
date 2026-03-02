@@ -39,6 +39,7 @@ git checkout -b feature/my-feature   # or fix/my-fix
 - No fork-specific code (no MCPB, no fork CI, no Claude rules)
 - Follow upstream conventions: Google docstrings, ruff 88-char, mypy
 - Run `uv run pytest tests/ -x` and `uv run pre-commit run --all-files`
+- **Security fixes:** Do NOT submit as public PRs or issues. Use GitHub's private vulnerability reporting at https://github.com/sooperset/mcp-atlassian/security — see below
 
 ### 3. Switch to the classic PAT for cross-repo operations
 
@@ -107,6 +108,23 @@ Tracked in [Issue #28](https://github.com/Troubladore/mcp-atlassian/issues/28).
 4. Delete the feature branch: `git branch -D feature/xxx && git push origin --delete feature/xxx`
 5. Update issue #28 status
 6. Force push: `git push --force-with-lease origin eruditis/main`
+
+## Security Vulnerabilities
+
+**NEVER report security issues as public PRs or issues on upstream.**
+
+Upstream has a security policy at https://github.com/sooperset/mcp-atlassian/security that requires private disclosure. Their commitments:
+- Acknowledge within 72 hours
+- Initial assessment within 7 days
+- Patch within 30 days
+
+**Process for security fixes:**
+1. Report via GitHub's "Report a vulnerability" button at the security link above
+2. Wait for maintainer acknowledgment
+3. Coordinate on timing for the fix and public disclosure
+4. Only then submit a PR (or the maintainer may fix it themselves)
+
+**Lesson learned:** PR #1087 (URL validation bypass) was submitted as a public PR, which disclosed the vulnerability before the maintainer could assess it. Follow the private reporting process going forward.
 
 ## Monitoring
 
