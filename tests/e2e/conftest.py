@@ -37,7 +37,7 @@ DEFAULT_SPACE_KEY = "E2E"
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
-    """Add --dc-e2e and --cloud-e2e command-line options."""
+    """Add --dc-e2e, --cloud-e2e, and --upstream-triage command-line options."""
     parser.addoption(
         "--dc-e2e",
         action="store_true",
@@ -50,10 +50,16 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
         help="Run E2E tests against Cloud instances",
     )
+    parser.addoption(
+        "--upstream-triage",
+        action="store_true",
+        default=False,
+        help="Run upstream issue triage/reproduction tests",
+    )
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Register dc_e2e and cloud_e2e markers."""
+    """Register dc_e2e, cloud_e2e, and upstream_triage markers."""
     config.addinivalue_line(
         "markers",
         "dc_e2e: mark test as requiring DC instances (Jira DC + Confluence DC)",
@@ -62,23 +68,31 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "cloud_e2e: mark test as requiring Cloud instances (Jira Cloud + Confluence Cloud)",
     )
+    config.addinivalue_line(
+        "markers",
+        "upstream_triage: mark test as upstream issue reproduction (requires --upstream-triage flag)",
+    )
 
 
 def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:
-    """Auto-skip dc_e2e/cloud_e2e tests unless their flags are passed."""
+    """Auto-skip dc_e2e/cloud_e2e/upstream_triage tests unless their flags are passed."""
     run_dc = config.getoption("--dc-e2e")
     run_cloud = config.getoption("--cloud-e2e")
+    run_triage = config.getoption("--upstream-triage")
 
     skip_dc = pytest.mark.skip(reason="need --dc-e2e option to run")
     skip_cloud = pytest.mark.skip(reason="need --cloud-e2e option to run")
+    skip_triage = pytest.mark.skip(reason="need --upstream-triage option to run")
 
     for item in items:
         if "dc_e2e" in item.keywords and not run_dc:
             item.add_marker(skip_dc)
         if "cloud_e2e" in item.keywords and not run_cloud:
             item.add_marker(skip_cloud)
+        if "upstream_triage" in item.keywords and not run_triage:
+            item.add_marker(skip_triage)
 
 
 # --- Data Classes ---
