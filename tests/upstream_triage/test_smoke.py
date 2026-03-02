@@ -44,8 +44,9 @@ class TestTriageSmoke:
         triage_instance: TriageInstanceInfo,
     ) -> None:
         """Verify the MCPTEST space exists."""
-        spaces = triage_confluence.get_spaces()
-        space_keys = [s.key for s in spaces]
+        spaces_data = triage_confluence.get_spaces(limit=100)
+        results = spaces_data.get("results", [])
+        space_keys = [s["key"] for s in results if isinstance(s, dict)]
         assert triage_instance.space_key in space_keys, (
             f"Space {triage_instance.space_key} not found. Available: {space_keys[:10]}"
         )

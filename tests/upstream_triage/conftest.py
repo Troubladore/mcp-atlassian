@@ -14,13 +14,45 @@ import os
 import uuid
 from collections.abc import Generator
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
+from dotenv import load_dotenv
 
 from mcp_atlassian.confluence import ConfluenceFetcher
 from mcp_atlassian.confluence.config import ConfluenceConfig
 
 logger = logging.getLogger(__name__)
+
+# Load .env from project root if it exists (before fixtures read env vars)
+_project_root = Path(__file__).resolve().parent.parent.parent
+load_dotenv(_project_root / ".env")
+
+
+# --- Pytest Plugin ---
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Add --upstream-triage command-line option."""
+    parser.addoption(
+        "--upstream-triage",
+        action="store_true",
+        default=False,
+        help="Run upstream issue triage/reproduction tests",
+    )
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    """Auto-skip upstream_triage tests unless --upstream-triage is passed."""
+    if config.getoption("--upstream-triage"):
+        return
+    skip_triage = pytest.mark.skip(reason="need --upstream-triage option to run")
+    for item in items:
+        if "upstream_triage" in item.keywords:
+            item.add_marker(skip_triage)
+
 
 TRIAGE_SPACE_KEY = os.environ.get("TRIAGE_SPACE_KEY", "MCPTEST")
 
@@ -84,6 +116,7 @@ def triage_confluence(triage_instance: TriageInstanceInfo) -> ConfluenceFetcher:
     """Session-scoped Confluence client for triage tests."""
     config = ConfluenceConfig(
         url=triage_instance.confluence_url,
+        auth_type="basic",
         username=triage_instance.username,
         api_token=triage_instance.api_token,
     )
