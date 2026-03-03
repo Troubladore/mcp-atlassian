@@ -68,7 +68,7 @@ Focus: Confluence Cloud bugs. Working oldest to newest.
 | 719 | jira_get_sprint_issues ignores fields param | OUT_OF_SCOPE | — | 2026-03-02 | Jira DC | #37 |
 | 722 | Custom checklist field update fails | OUT_OF_SCOPE | — | 2026-03-02 | Jira DC, third-party plugin | #37 |
 | 735 | jira_transition_issue resolution not set | OUT_OF_SCOPE | — | 2026-03-02 | Jira DC, str vs dict | #37 |
-| 743 | 'str' object has no attribute 'get' | RESOLVED | — | 2026-03-02 | Fixed in commit 071c522 (isinstance guard). Regression test added | |
+| 743 | 'str' object has no attribute 'get' | RESOLVED | — | 2026-03-02 | Fixed in commit 071c522 (isinstance guard). Regression test added | [PR #1106](https://github.com/sooperset/mcp-atlassian/pull/1106) |
 | 748 | Cursor IDE all tools fail | OUT_OF_SCOPE | — | 2026-03-02 | Jira Cloud, 7 comments, likely env issue | |
 | 756 | confluence_search_user fails on Server | OUT_OF_SCOPE | — | 2026-03-02 | Server/DC only | |
 | 765 | Tools not working on Confluence/Jira Cloud | CANNOT_REPRODUCE | — | 2026-03-02 | Maintainer confirmed works, credential misconfiguration | |
@@ -78,7 +78,7 @@ Focus: Confluence Cloud bugs. Working oldest to newest.
 | 868 | 100% CPU fakeredis busy-loop | OUT_OF_SCOPE | — | 2026-03-02 | Upstream FastMCP bug, not mcp-atlassian | |
 | 884 | 403 from DDoS protection (User-Agent) | OUT_OF_SCOPE | — | 2026-03-02 | Jira DC | #37 |
 | 889 | Wiki page link wrong format | OUT_OF_SCOPE | — | 2026-03-02 | Jira DC | #37 |
-| 897 | Date object not returned in page data | RESOLVED | — | 2026-03-02 | Date macro content IS preserved. Commented on upstream. | |
+| 897 | Date object not returned in page data | RESOLVED | — | 2026-03-02 | Date macro content IS preserved. Regression test added | [PR #1107](https://github.com/sooperset/mcp-atlassian/pull/1107) |
 | 907 | confluence_search empty for space queries | CONFIRMED | Easy | 2026-03-02 | CQL `type=space` returns 0 results. `content` key vs `space` key | #36 |
 | 909 | Orphaned processes after close | OUT_OF_SCOPE | — | 2026-03-02 | Infra/process management | |
 | 1082 | Cloud-only tools exposed to DC agents | OUT_OF_SCOPE | — | 2026-03-02 | Jira DC, toolset filtering. Also affects Confluence. | #37 |
