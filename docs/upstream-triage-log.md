@@ -30,7 +30,7 @@ Focus: All open issues (bugs and features, any service).
 | Issue # | Title | Status | Difficulty | Date | Notes | Our Issue | Fix Branch |
 |---------|-------|--------|------------|------|-------|-----------|------------|
 | 126 | Streamline env vars / CLI args config | OUT_OF_SCOPE | — | 2026-03-02 | Internal refactor; no behavioral test possible | | |
-| 231 | Multiple Atlassian instances per server | CONFIRMED | Hard | 2026-03-02 | Server config supports only one Jira + one Confluence | | `triage/upstream-231-multiple-instances` |
+| 231 | Multiple Atlassian instances per server | CONFIRMED | Hard | 2026-03-02 | Server config supports only one Jira + one Confluence. **Prior art:** `ubisoft/mcp-atlassian` branch `feature/multi-server` has a working implementation (5600+ lines, 17 files, dedicated test suite). Approach: `from_env(env=dict)`, factory registration functions, `build_main_lifespan()`. See fork comparison notes. | | `triage/upstream-231-multiple-instances` |
 | 240 | Add web links and Confluence links to Jira | RESOLVED | Easy | 2026-03-02 | `create_remote_issue_link` already implemented in links.py | | `triage/upstream-240-remote-issue-links` |
 | 287 | SimpleFields utility class for Jira | CONFIRMED | Medium | 2026-03-02 | Class doesn't exist; field handling is ad-hoc in issues.py | | `triage/upstream-287-simple-fields` |
 | 289 | Bitbucket support | OUT_OF_SCOPE | — | 2026-03-02 | Entirely new product, outside project scope | | |

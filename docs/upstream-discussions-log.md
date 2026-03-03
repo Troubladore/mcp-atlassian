@@ -46,3 +46,5 @@ Tracking document for community engagement on `sooperset/mcp-atlassian` GitHub D
 | 444 | Not listening on any port | Q&A | SKIPPED | 2026-03-03 | Docker/infra issue (#420) | — |
 | 462 | Context window issues | General | RESPONDED | 2026-03-03 | Guidance: fields, limit, TOOLSETS | `test_search` |
 | 464 | Bitbucket inclusion | Ideas | SKIPPED | 2026-03-03 | Out of scope | — |
+| 643 | Is this project dead? | General | RESPONDED | 2026-03-03 | Fork comparison analysis posted | Issues #44-#48 |
+| 710 | Is this project abandoned? | General | SKIPPED | 2026-03-03 | Points to #643, we commented there | — |
