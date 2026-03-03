@@ -116,7 +116,7 @@ Focus: All open issues (bugs and features, any service).
 | 842 | Person tags/mentions lost on get/update | COMPLEX_DEFER | Hard | 2026-03-02 | Maintainer has 3-option analysis. Architectural. | | |
 | 847 | JSM internal comments (public: false) | RESOLVED | Easy | 2026-03-02 | Same as #716 — `add_comment(public=False)` already works via ServiceDesk API | [PR #1116](https://github.com/sooperset/mcp-atlassian/pull/1116) | `triage/upstream-847-jsm-internal-comments` |
 | 850 | Per-request config headers (multi-user) | COMPLEX_DEFER | Hard | 2026-03-02 | Multi-tenant server architecture; requires session isolation | | |
-| 857 | Get remote links from Jira issue | CONFIRMED | Medium | 2026-03-03 | Deferred: should be `include` enrichment on get_issue, aligning with #1101 direction | | `triage/upstream-857-get-remote-links` |
+| 857 | Get remote links from Jira issue | RESOLVED | Medium | 2026-03-03 | Fixed: added get_remote_issue_links + include param on get_issue | [PR #1125](https://github.com/sooperset/mcp-atlassian/pull/1125) | `fix/upstream-857-1101-get-issue-include` |
 | 858 | OAuth fails — missing refresh token | OUT_OF_SCOPE | — | 2026-03-02 | Jira DC, OAuth | | |
 | 866 | ProForma forms field update limitations | OUT_OF_SCOPE | — | 2026-03-02 | Stale; ProForma forms API already implemented | | |
 | 868 | 100% CPU fakeredis busy-loop | OUT_OF_SCOPE | — | 2026-03-02 | Upstream FastMCP bug, not mcp-atlassian | | |
@@ -132,17 +132,17 @@ Focus: All open issues (bugs and features, any service).
 | 1096 | per-request cloud_id overridden | OUT_OF_SCOPE | — | 2026-03-02 | Mixed DC+Cloud OAuth, auth only | | |
 | 1097 | DCR redirect_uri loop | OUT_OF_SCOPE | — | 2026-03-02 | OAuth, not Atlassian content | | |
 | 1100 | Shared helpers for outcome-oriented tools | OUT_OF_SCOPE | — | 2026-03-02 | Prerequisite utility; not a standalone feature | | |
-| 1101 | add include param to jira_get_issue | CONFIRMED | Medium | 2026-03-02 | No inline enrichment; 2-4 separate calls needed for transitions/watchers/changelog | | `triage/upstream-1101-get-issue-include` |
+| 1101 | add include param to jira_get_issue | RESOLVED | Medium | 2026-03-03 | Fixed: include param supports remote_links, transitions, watchers, changelog | [PR #1125](https://github.com/sooperset/mcp-atlassian/pull/1125) | `fix/upstream-857-1101-get-issue-include` |
 | 1102 | update_issue orchestration (transition/comment/worklog) | CONFIRMED | Medium | 2026-03-02 | Each action requires separate tool call; no consolidated update | | `triage/upstream-1102-update-issue-orchestration` |
-| 1103 | add include param to confluence_get_page | CONFIRMED | Medium | 2026-03-02 | No inline enrichment; 2-4 separate calls needed for comments/labels/views | | `triage/upstream-1103-get-page-include` |
+| 1103 | add include param to confluence_get_page | RESOLVED | Medium | 2026-03-03 | Fixed: include param supports comments, labels, views with Server/DC fallback | [PR #1124](https://github.com/sooperset/mcp-atlassian/pull/1124) | `fix/upstream-1103-get-page-include` |
 | 1104 | Roadmap: outcome-oriented tool restructuring | OUT_OF_SCOPE | — | 2026-03-02 | Roadmap/tracking issue, not a code change | | |
 
 ## Summary
 
 | Status | Count |
 |--------|-------|
-| RESOLVED | 18 |
-| CONFIRMED | 17 |
+| RESOLVED | 21 |
+| CONFIRMED | 14 |
 | CANNOT_REPRODUCE | 2 |
 | COMPLEX_DEFER | 6 |
 | OUT_OF_SCOPE | 64 |
@@ -224,4 +224,5 @@ All 107 issues assessed. Next: create one branch per testable issue (RESOLVED + 
 | 2026-03-02 | 2 | All 107 open issues (complete pass) | 3 CONFIRMED, 2 RESOLVED, 2 CANNOT_REPRODUCE, 1 COMPLEX_DEFER, rest OUT_OF_SCOPE or Jira |
 | 2026-03-02 | 3 | All 107 re-examined including features | Expanded to 12 RESOLVED, 26 CONFIRMED; added JTEST Jira project; full branch plan |
 | 2026-03-03 | 4 | Phase 2 execution: all 38 testable branches created | 11 RESOLVED PRs (#1106–#1116); 27 CONFIRMED branches with failing tests pushed |
-| 2026-03-03 | 5 | Phase 2 fixes: 7 Easy issues implemented | 5 fix PRs (#1117–#1121, #1123); #996 reclassified COMPLEX_DEFER; #857 reclassified Medium (deferred to #1101); filed upstream #1118 for expand param gaps |
+| 2026-03-03 | 5 | Phase 2 fixes: Easy + Medium issues | 8 fix PRs (#1117–#1121, #1123–#1125); filed upstream #1118; #996 → COMPLEX_DEFER |
+| 2026-03-03 | — | Cumulative | 21 RESOLVED (19 upstream PRs), 14 CONFIRMED remain, 6 COMPLEX_DEFER, 64 OUT_OF_SCOPE, 2 CANNOT_REPRODUCE |
