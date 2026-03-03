@@ -2580,7 +2580,6 @@ class TestPageWidth:
             assert page.page_width == "full-width"
 
 
-
 class TestPageHierarchy:
     """Tests for page hierarchy and navigation methods."""
 
@@ -2704,3 +2703,37 @@ class TestPageHierarchy:
         assert pages[0]["id"] == "123"  # position 0
         assert pages[1]["id"] == "456"  # position 1
         assert pages[2]["id"] == "789"  # position 2
+
+
+class TestGetPageContentErrorHandling:
+    """Tests for get_page_content error handling (regression for upstream #743)."""
+
+    @pytest.fixture
+    def pages_mixin(self, confluence_client):
+        """Create a PagesMixin instance for testing."""
+        with patch(
+            "mcp_atlassian.confluence.pages.ConfluenceClient.__init__"
+        ) as mock_init:
+            mock_init.return_value = None
+            mixin = PagesMixin()
+            mixin.confluence = confluence_client.confluence
+            mixin.config = confluence_client.config
+            mixin.preprocessor = confluence_client.preprocessor
+            return mixin
+
+    def test_string_api_response_raises_clean_error(self, pages_mixin):
+        """API returning a string instead of a dict should raise a clean Exception,
+        not AttributeError: 'str' object has no attribute 'get'.
+
+        Regression test for https://github.com/sooperset/mcp-atlassian/issues/743
+        Fixed in commit 071c522.
+        """
+        pages_mixin.confluence.get_page_by_id.return_value = "Error: page not found"
+        with pytest.raises(Exception) as exc_info:
+            pages_mixin.get_page_content("000000000")
+
+        msg = str(exc_info.value)
+        assert "has no attribute" not in msg, (
+            f"Got raw AttributeError instead of clean error: {msg}"
+        )
+        assert "API returned error response" in msg or "Error" in msg

@@ -137,3 +137,151 @@ class TestConfluenceCloudComments:
 
         comments = confluence_fetcher.get_page_comments(page.id)
         assert len(comments) > 0
+
+
+class TestConfluencePageMetadata:
+    """Page metadata fields (created, updated, author) are populated.
+
+    Regression for https://github.com/sooperset/mcp-atlassian/issues/607
+    Root cause: get_page_content() missing 'history' in expand params.
+    """
+
+    def test_page_has_created_date(
+        self,
+        confluence_fetcher: ConfluenceFetcher,
+        cloud_instance: CloudInstanceInfo,
+        resource_tracker: CloudResourceTracker,
+    ) -> None:
+        uid = uuid.uuid4().hex[:8]
+        page = confluence_fetcher.create_page(
+            space_key=cloud_instance.space_key,
+            title=f"Cloud E2E Metadata Test {uid}",
+            body="<p>Testing metadata retrieval.</p>",
+            is_markdown=False,
+        )
+        resource_tracker.add_confluence_page(page.id)
+        fetched = confluence_fetcher.get_page_content(page.id)
+        assert fetched.created, "created date is empty — 'history' missing from expand"
+
+    def test_page_has_last_modified(
+        self,
+        confluence_fetcher: ConfluenceFetcher,
+        cloud_instance: CloudInstanceInfo,
+        resource_tracker: CloudResourceTracker,
+    ) -> None:
+        uid = uuid.uuid4().hex[:8]
+        page = confluence_fetcher.create_page(
+            space_key=cloud_instance.space_key,
+            title=f"Cloud E2E Modified Test {uid}",
+            body="<p>Testing metadata retrieval.</p>",
+            is_markdown=False,
+        )
+        resource_tracker.add_confluence_page(page.id)
+        fetched = confluence_fetcher.get_page_content(page.id)
+        assert fetched.updated, "updated date is empty — 'history' missing from expand"
+
+    def test_page_has_author(
+        self,
+        confluence_fetcher: ConfluenceFetcher,
+        cloud_instance: CloudInstanceInfo,
+        resource_tracker: CloudResourceTracker,
+    ) -> None:
+        uid = uuid.uuid4().hex[:8]
+        page = confluence_fetcher.create_page(
+            space_key=cloud_instance.space_key,
+            title=f"Cloud E2E Author Test {uid}",
+            body="<p>Testing author retrieval.</p>",
+            is_markdown=False,
+        )
+        resource_tracker.add_confluence_page(page.id)
+        fetched = confluence_fetcher.get_page_content(page.id)
+        assert fetched.author is not None, "author is None — not returned by API"
+
+
+class TestConfluenceUpdatePageErrors:
+    """Error messages from update_page are informative.
+
+    Regression for https://github.com/sooperset/mcp-atlassian/issues/692
+    """
+
+    def test_duplicate_title_raises_descriptive_error(
+        self,
+        confluence_fetcher: ConfluenceFetcher,
+        cloud_instance: CloudInstanceInfo,
+        resource_tracker: CloudResourceTracker,
+    ) -> None:
+        uid = uuid.uuid4().hex[:8]
+        page_a = confluence_fetcher.create_page(
+            space_key=cloud_instance.space_key,
+            title=f"Cloud E2E Dup Title A {uid}",
+            body="<p>First page.</p>",
+            is_markdown=False,
+        )
+        resource_tracker.add_confluence_page(page_a.id)
+        page_b = confluence_fetcher.create_page(
+            space_key=cloud_instance.space_key,
+            title=f"Cloud E2E Dup Title B {uid}",
+            body="<p>Second page.</p>",
+            is_markdown=False,
+        )
+        resource_tracker.add_confluence_page(page_b.id)
+        with pytest.raises(Exception, match="(?i)(already exists|title|duplicate)"):
+            confluence_fetcher.update_page(
+                page_id=page_b.id,
+                title=f"Cloud E2E Dup Title A {uid}",
+                body="<p>Updated body.</p>",
+                is_markdown=False,
+            )
+
+
+class TestConfluenceDateMacro:
+    """Date macros in storage format are preserved in page content.
+
+    Regression for https://github.com/sooperset/mcp-atlassian/issues/897
+    """
+
+    def test_date_macro_preserved_in_page_content(
+        self,
+        confluence_fetcher: ConfluenceFetcher,
+        cloud_instance: CloudInstanceInfo,
+        resource_tracker: CloudResourceTracker,
+    ) -> None:
+        uid = uuid.uuid4().hex[:8]
+        storage_body = (
+            "<p>Meeting date: "
+            '<ac:structured-macro ac:name="date">'
+            '<ac:parameter ac:name="date">2026-02-04</ac:parameter>'
+            "</ac:structured-macro>"
+            "</p>"
+        )
+        page = confluence_fetcher.create_page(
+            space_key=cloud_instance.space_key,
+            title=f"Cloud E2E Date Macro Test {uid}",
+            body=storage_body,
+            is_markdown=False,
+            content_representation="storage",
+        )
+        resource_tracker.add_confluence_page(page.id)
+        fetched = confluence_fetcher.get_page_content(page.id)
+        content = fetched.content or ""
+        assert "2026-02-04" in content or "Feb" in content or "February" in content, (
+            f"Date macro value missing from content. Got: {content[:500]}"
+        )
+
+
+class TestConfluenceCQLSpaceSearch:
+    """CQL type=space searches return results (not empty list).
+
+    Regression for https://github.com/sooperset/mcp-atlassian/issues/907
+    Root cause: search.py excerpt-matching uses 'content' key, space results
+    use 'space' key — no match found, results silently empty.
+    """
+
+    def test_cql_type_space_returns_results(
+        self,
+        confluence_fetcher: ConfluenceFetcher,
+    ) -> None:
+        results = confluence_fetcher.search(cql="type=space", limit=10)
+        assert len(results) > 0, (
+            "CQL type=space returned no results — space result processing broken"
+        )

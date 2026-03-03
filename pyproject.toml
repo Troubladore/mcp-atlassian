@@ -64,7 +64,6 @@ markers = [
     "integration: mark test as requiring integration with real services",
     "dc_e2e: mark test as requiring DC instances (Jira DC + Confluence DC)",
     "cloud_e2e: mark test as requiring Cloud instances (Jira Cloud + Confluence Cloud)",
-    "upstream_triage: mark test as upstream issue reproduction (requires --upstream-triage flag)",
 ]
 
 [tool.ruff]

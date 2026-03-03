@@ -67,7 +67,7 @@ def pytest_configure(config: pytest.Config) -> None:
 def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:
-    """Auto-skip dc_e2e/cloud_e2e/upstream_triage tests unless their flags are passed."""
+    """Auto-skip dc_e2e/cloud_e2e tests unless their flags are passed."""
     run_dc = config.getoption("--dc-e2e")
     run_cloud = config.getoption("--cloud-e2e")
 
