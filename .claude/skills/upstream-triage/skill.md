@@ -47,8 +47,12 @@ Tests belong in the natural location — not in any special triage directory.
 | Content | Location |
 |---------|----------|
 | Unit test (mockable, any service) | `tests/unit/{confluence,jira}/` |
-| Confluence Cloud E2E | `tests/e2e/cloud/test_confluence_cloud_operations.py` |
-| Jira Cloud E2E | `tests/e2e/cloud/test_jira_cloud_operations.py` |
+| Confluence Cloud E2E | `tests/e2e/cloud/test_confluence_{feature}.py` |
+| Jira Cloud E2E | `tests/e2e/cloud/test_jira_{feature}.py` |
+
+**E2E tests go in standalone files** — one per feature/issue. Do NOT append to
+`test_confluence_cloud_operations.py` or `test_jira_cloud_operations.py`. Those are
+legacy monolithic files. Standalone files prevent merge conflicts between PRs.
 
 ## Branch Naming
 
