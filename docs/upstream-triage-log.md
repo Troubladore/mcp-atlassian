@@ -44,8 +44,8 @@ Focus: All open issues (bugs and features, any service).
 | 435 | Jira tool not registered on 2nd invocation | OUT_OF_SCOPE | — | 2026-03-02 | Jira Cloud | #37 | |
 | 447 | Jira Service Management support | RESOLVED | Medium | 2026-03-02 | Service desk tools exist: get_service_desk_for_project, get_service_desk_queues, get_queue_issues | [PR #1115](https://github.com/sooperset/mcp-atlassian/pull/1115) | `triage/upstream-447-jsm-tools` |
 | 454 | Use /customFields to detect Epic Link field dynamically | RESOLVED | Medium | 2026-03-02 | Already dynamic via `_get_epic_field_ids()` — no hardcoded customfield_10008 | [PR #1113](https://github.com/sooperset/mcp-atlassian/pull/1113) | `triage/upstream-454-epic-link-dynamic` |
-| 459 | Retrieve my username using token | CONFIRMED | Easy | 2026-03-02 | No dedicated `get_me` tool; `get_user_profile` requires explicit identifier | | `triage/upstream-459-get-current-user` |
-| 460 | Get project issue types and fields per project | CONFIRMED | Easy | 2026-03-02 | `get_project_issue_types()` exists in projects.py but not exposed as MCP tool | | `triage/upstream-460-project-issue-types` |
+| 459 | Retrieve my username using token | RESOLVED | Easy | 2026-03-03 | Fixed: `get_user_profile("me")` now works via get_current_user_account_id() | [PR #1120](https://github.com/sooperset/mcp-atlassian/pull/1120) | `fix/upstream-596-459-user-profile-me` |
+| 460 | Get project issue types and fields per project | RESOLVED | Easy | 2026-03-03 | Fixed: exposed get_project_issue_types + get_create_fields as MCP tools; also fixed parsing bug | [PR #1123](https://github.com/sooperset/mcp-atlassian/pull/1123) | `fix/upstream-460-project-issue-types` |
 | 475 | Unable to get space when get page by title | OUT_OF_SCOPE | — | 2026-03-02 | Server/DC only, reporter has >500 spaces | | |
 | 483 | Add/remove watchers on Jira | RESOLVED | — | 2026-03-02 | add_watcher, remove_watcher, get_issue_watchers all implemented | [PR #1114](https://github.com/sooperset/mcp-atlassian/pull/1114) | `triage/upstream-483-jira-watchers` |
 | 484 | MCP Server not compatible with ChatGPT | OUT_OF_SCOPE | — | 2026-03-02 | Client-side compatibility, not server code | | |
@@ -67,9 +67,9 @@ Focus: All open issues (bugs and features, any service).
 | 590 | PAT from headers not working | OUT_OF_SCOPE | — | 2026-03-02 | Jira DC | #37 | |
 | 593 | Bulk issue creation wrong top-level key | OUT_OF_SCOPE | — | 2026-03-02 | Jira Cloud | #37 | |
 | 594 | HTTPS support for Docker | OUT_OF_SCOPE | — | 2026-03-02 | Infrastructure/Docker | | |
-| 596 | jira_get_user_profile crashes on `me` identifier | CONFIRMED | Easy | 2026-03-02 | `me` not handled in get_user_profile; related to #459 | | `triage/upstream-596-user-profile-me` |
+| 596 | jira_get_user_profile crashes on `me` identifier | RESOLVED | Easy | 2026-03-03 | Fixed: detect `me` and resolve via get_current_user_account_id() | [PR #1120](https://github.com/sooperset/mcp-atlassian/pull/1120) | `fix/upstream-596-459-user-profile-me` |
 | 601 | max_results ignored in jira_search | OUT_OF_SCOPE | — | 2026-03-02 | Jira Cloud | #37 | |
-| 607 | Can't find author_name, created_on, last_modified | CONFIRMED | Easy | 2026-03-02 | Missing `history` in expand params | #34 | `fix/upstream-607-page-metadata` |
+| 607 | Can't find author_name, created_on, last_modified | RESOLVED | Easy | 2026-03-03 | Fixed: added `history` to expand params + model fallback for history.createdBy | [PR #1117](https://github.com/sooperset/mcp-atlassian/pull/1117) | `fix/upstream-607-page-metadata` |
 | 608 | Can't add image/media to Jira ticket | OUT_OF_SCOPE | — | 2026-03-02 | Jira Cloud, attachment | #37 | |
 | 613 | Tool names stripped of jira_ prefix | OUT_OF_SCOPE | — | 2026-03-02 | Jira Cloud | #37 | |
 | 618 | Attachment upload needs server-side path | OUT_OF_SCOPE | — | 2026-03-02 | Jira DC, architectural | #37 | |
@@ -82,7 +82,7 @@ Focus: All open issues (bugs and features, any service).
 | 649 | Propagate errors to MCP client | CONFIRMED | Medium | 2026-03-02 | HTTP 400/500 errors swallowed; not forwarded to client (related to #486) | | `triage/upstream-649-error-propagation` |
 | 652 | Multi-Cloud OAuth 403 on Confluence | CANNOT_REPRODUCE | — | 2026-03-02 | OAuth-specific; no OAuth setup available | | |
 | 653 | Latest comment returns oldest | OUT_OF_SCOPE | — | 2026-03-02 | Jira Cloud | #37 | |
-| 654 | Get user details in Confluence tools | CONFIRMED | Easy | 2026-03-02 | search_user exists but no get_user_by_id; only searches, doesn't fetch by accountId | | `triage/upstream-654-confluence-user-details` |
+| 654 | Get user details in Confluence tools | RESOLVED | Easy | 2026-03-03 | Fixed: exposed get_user_details tool routing accountId/username/'me' | [PR #1121](https://github.com/sooperset/mcp-atlassian/pull/1121) | `fix/upstream-654-confluence-user-details` |
 | 657 | Request before initialization complete | OUT_OF_SCOPE | — | 2026-03-02 | Transport/init, Jira DC | | |
 | 667 | Attachment content parsing in Confluence | CONFIRMED | Hard | 2026-03-02 | Only metadata returned; no PDF/Word/Excel content extraction | | `triage/upstream-667-attachment-parsing` |
 | 668 | Error editing Confluence page (version/status) | OUT_OF_SCOPE | — | 2026-03-02 | Server/DC only, upstream atlassian-python-api bug | | |
@@ -116,18 +116,18 @@ Focus: All open issues (bugs and features, any service).
 | 842 | Person tags/mentions lost on get/update | COMPLEX_DEFER | Hard | 2026-03-02 | Maintainer has 3-option analysis. Architectural. | | |
 | 847 | JSM internal comments (public: false) | RESOLVED | Easy | 2026-03-02 | Same as #716 — `add_comment(public=False)` already works via ServiceDesk API | [PR #1116](https://github.com/sooperset/mcp-atlassian/pull/1116) | `triage/upstream-847-jsm-internal-comments` |
 | 850 | Per-request config headers (multi-user) | COMPLEX_DEFER | Hard | 2026-03-02 | Multi-tenant server architecture; requires session isolation | | |
-| 857 | Get remote links from Jira issue | CONFIRMED | Easy | 2026-03-02 | `create_remote_issue_link` exists but GET not implemented | | `triage/upstream-857-get-remote-links` |
+| 857 | Get remote links from Jira issue | CONFIRMED | Medium | 2026-03-03 | Deferred: should be `include` enrichment on get_issue, aligning with #1101 direction | | `triage/upstream-857-get-remote-links` |
 | 858 | OAuth fails — missing refresh token | OUT_OF_SCOPE | — | 2026-03-02 | Jira DC, OAuth | | |
 | 866 | ProForma forms field update limitations | OUT_OF_SCOPE | — | 2026-03-02 | Stale; ProForma forms API already implemented | | |
 | 868 | 100% CPU fakeredis busy-loop | OUT_OF_SCOPE | — | 2026-03-02 | Upstream FastMCP bug, not mcp-atlassian | | |
 | 884 | 403 from DDoS protection (User-Agent) | OUT_OF_SCOPE | — | 2026-03-02 | Jira DC | #37 | |
 | 889 | Wiki page link wrong format | OUT_OF_SCOPE | — | 2026-03-02 | Jira DC | #37 | |
 | 897 | Date object not returned in page data | RESOLVED | — | 2026-03-02 | Date macro content IS preserved. Regression test added | [PR #1107](https://github.com/sooperset/mcp-atlassian/pull/1107) | |
-| 907 | confluence_search empty for space queries | CONFIRMED | Easy | 2026-03-02 | CQL `type=space` returns 0 results. `content` key vs `space` key | #36 | `fix/upstream-907-cql-space-search` |
+| 907 | confluence_search empty for space queries | RESOLVED | Easy | 2026-03-03 | Fixed: model + excerpt matching now handle `space` key in results | [PR #1119](https://github.com/sooperset/mcp-atlassian/pull/1119) | `fix/upstream-907-cql-space-search` |
 | 909 | Orphaned processes after close | OUT_OF_SCOPE | — | 2026-03-02 | Infra/process management | | |
-| 965 | Confluence create/update date fields empty | CONFIRMED | Easy | 2026-03-02 | Same root cause as #607 — `history` not in expand params | | `triage/upstream-965-confluence-dates` |
+| 965 | Confluence create/update date fields empty | RESOLVED | Easy | 2026-03-03 | Fixed: same root cause as #607, covered by PR #1117 | [PR #1117](https://github.com/sooperset/mcp-atlassian/pull/1117) | `fix/upstream-607-page-metadata` |
 | 968 | Scoped (granular) Atlassian Cloud API tokens | CONFIRMED | Medium | 2026-03-02 | Scoped tokens need api.atlassian.com/ex/... routing, not direct site URL | | `triage/upstream-968-scoped-tokens` |
-| 996 | Download/upload page content to file | CONFIRMED | Easy | 2026-03-02 | No confluence_download_page_to_file tool; large page bodies bloat LLM context | | `triage/upstream-996-page-content-file` |
+| 996 | Download/upload page content to file | COMPLEX_DEFER | — | 2026-03-03 | Maintainer says MCP spec lacks mature file-passing mechanism; not implementing | | |
 | 1082 | Cloud-only tools exposed to DC agents | OUT_OF_SCOPE | — | 2026-03-02 | Jira DC, toolset filtering. Also affects Confluence. | #37 | |
 | 1096 | per-request cloud_id overridden | OUT_OF_SCOPE | — | 2026-03-02 | Mixed DC+Cloud OAuth, auth only | | |
 | 1097 | DCR redirect_uri loop | OUT_OF_SCOPE | — | 2026-03-02 | OAuth, not Atlassian content | | |
@@ -141,10 +141,10 @@ Focus: All open issues (bugs and features, any service).
 
 | Status | Count |
 |--------|-------|
-| RESOLVED | 11 |
-| CONFIRMED | 25 |
+| RESOLVED | 18 |
+| CONFIRMED | 17 |
 | CANNOT_REPRODUCE | 2 |
-| COMPLEX_DEFER | 5 |
+| COMPLEX_DEFER | 6 |
 | OUT_OF_SCOPE | 64 |
 | **Total** | **107** |
 
@@ -224,3 +224,4 @@ All 107 issues assessed. Next: create one branch per testable issue (RESOLVED + 
 | 2026-03-02 | 2 | All 107 open issues (complete pass) | 3 CONFIRMED, 2 RESOLVED, 2 CANNOT_REPRODUCE, 1 COMPLEX_DEFER, rest OUT_OF_SCOPE or Jira |
 | 2026-03-02 | 3 | All 107 re-examined including features | Expanded to 12 RESOLVED, 26 CONFIRMED; added JTEST Jira project; full branch plan |
 | 2026-03-03 | 4 | Phase 2 execution: all 38 testable branches created | 11 RESOLVED PRs (#1106–#1116); 27 CONFIRMED branches with failing tests pushed |
+| 2026-03-03 | 5 | Phase 2 fixes: 7 Easy issues implemented | 5 fix PRs (#1117–#1121, #1123); #996 reclassified COMPLEX_DEFER; #857 reclassified Medium (deferred to #1101); filed upstream #1118 for expand param gaps |
