@@ -141,11 +141,11 @@ Focus: All open issues (bugs and features, any service).
 
 | Status | Count |
 |--------|-------|
-| RESOLVED | 12 |
-| CONFIRMED | 26 |
-| CANNOT_REPRODUCE | 3 |
-| COMPLEX_DEFER | 6 |
-| OUT_OF_SCOPE | 60 |
+| RESOLVED | 11 |
+| CONFIRMED | 25 |
+| CANNOT_REPRODUCE | 2 |
+| COMPLEX_DEFER | 5 |
+| OUT_OF_SCOPE | 64 |
 | **Total** | **107** |
 
 ## Phase 2: Test Branches
