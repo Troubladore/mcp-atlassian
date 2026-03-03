@@ -137,3 +137,42 @@ class TestConfluenceCloudComments:
 
         comments = confluence_fetcher.get_page_comments(page.id)
         assert len(comments) > 0
+
+
+class TestConfluenceUpdatePageErrors:
+    """Error messages from update_page are informative.
+
+    Regression for https://github.com/sooperset/mcp-atlassian/issues/692
+    Root cause: Confluence API returns misleading error on duplicate title;
+    mcp-atlassian passes it through without interpretation.
+    Branch sits here until fix is implemented — test currently FAILS.
+    """
+
+    def test_duplicate_title_raises_descriptive_error(
+        self,
+        confluence_fetcher: ConfluenceFetcher,
+        cloud_instance: CloudInstanceInfo,
+        resource_tracker: CloudResourceTracker,
+    ) -> None:
+        uid = uuid.uuid4().hex[:8]
+        page_a = confluence_fetcher.create_page(
+            space_key=cloud_instance.space_key,
+            title=f"Cloud E2E Dup Title A {uid}",
+            body="<p>First page.</p>",
+            is_markdown=False,
+        )
+        resource_tracker.add_confluence_page(page_a.id)
+        page_b = confluence_fetcher.create_page(
+            space_key=cloud_instance.space_key,
+            title=f"Cloud E2E Dup Title B {uid}",
+            body="<p>Second page.</p>",
+            is_markdown=False,
+        )
+        resource_tracker.add_confluence_page(page_b.id)
+        with pytest.raises(Exception, match="(?i)(already exists|title|duplicate)"):
+            confluence_fetcher.update_page(
+                page_id=page_b.id,
+                title=f"Cloud E2E Dup Title A {uid}",
+                body="<p>Updated body.</p>",
+                is_markdown=False,
+            )
