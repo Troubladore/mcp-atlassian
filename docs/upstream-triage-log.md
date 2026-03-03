@@ -42,12 +42,12 @@ Focus: All open issues (bugs and features, any service).
 | 423 | Integration Testing infrastructure | OUT_OF_SCOPE | — | 2026-03-02 | Meta-issue about testing — we're building this now | | |
 | 433 | Seamless OAuth flow for MCP clients | COMPLEX_DEFER | Hard | 2026-03-02 | 3LO flow requiring server-side callback; complex auth architecture | | |
 | 435 | Jira tool not registered on 2nd invocation | OUT_OF_SCOPE | — | 2026-03-02 | Jira Cloud | #37 | |
-| 447 | Jira Service Management support | RESOLVED | Medium | 2026-03-02 | Service desk tools exist: get_service_desk_for_project, get_service_desk_queues, get_queue_issues | | `triage/upstream-447-jsm-tools` |
-| 454 | Use /customFields to detect Epic Link field dynamically | RESOLVED | Medium | 2026-03-02 | Already dynamic via `_get_epic_field_ids()` — no hardcoded customfield_10008 | | `triage/upstream-454-epic-link-dynamic` |
+| 447 | Jira Service Management support | RESOLVED | Medium | 2026-03-02 | Service desk tools exist: get_service_desk_for_project, get_service_desk_queues, get_queue_issues | [PR #1115](https://github.com/sooperset/mcp-atlassian/pull/1115) | `triage/upstream-447-jsm-tools` |
+| 454 | Use /customFields to detect Epic Link field dynamically | RESOLVED | Medium | 2026-03-02 | Already dynamic via `_get_epic_field_ids()` — no hardcoded customfield_10008 | [PR #1113](https://github.com/sooperset/mcp-atlassian/pull/1113) | `triage/upstream-454-epic-link-dynamic` |
 | 459 | Retrieve my username using token | CONFIRMED | Easy | 2026-03-02 | No dedicated `get_me` tool; `get_user_profile` requires explicit identifier | | `triage/upstream-459-get-current-user` |
 | 460 | Get project issue types and fields per project | CONFIRMED | Easy | 2026-03-02 | `get_project_issue_types()` exists in projects.py but not exposed as MCP tool | | `triage/upstream-460-project-issue-types` |
 | 475 | Unable to get space when get page by title | OUT_OF_SCOPE | — | 2026-03-02 | Server/DC only, reporter has >500 spaces | | |
-| 483 | Add/remove watchers on Jira | RESOLVED | — | 2026-03-02 | add_watcher, remove_watcher, get_issue_watchers all implemented | | `triage/upstream-483-jira-watchers` |
+| 483 | Add/remove watchers on Jira | RESOLVED | — | 2026-03-02 | add_watcher, remove_watcher, get_issue_watchers all implemented | [PR #1114](https://github.com/sooperset/mcp-atlassian/pull/1114) | `triage/upstream-483-jira-watchers` |
 | 484 | MCP Server not compatible with ChatGPT | OUT_OF_SCOPE | — | 2026-03-02 | Client-side compatibility, not server code | | |
 | 486 | Informative error messages via ToolError | CONFIRMED | Medium | 2026-03-02 | FastMCP swallows exceptions; ToolError not used; errors lost to client | | `triage/upstream-486-toolerrror-propagation` |
 | 499 | Zephyr plugin integration | OUT_OF_SCOPE | — | 2026-03-02 | Third-party plugin, not core Atlassian | | |
@@ -88,7 +88,7 @@ Focus: All open issues (bugs and features, any service).
 | 668 | Error editing Confluence page (version/status) | OUT_OF_SCOPE | — | 2026-03-02 | Server/DC only, upstream atlassian-python-api bug | | |
 | 670 | jira_create_issue fails due to issueType | OUT_OF_SCOPE | — | 2026-03-02 | Jira Cloud | #37 | |
 | 671 | Access token forwarding | OUT_OF_SCOPE | — | 2026-03-02 | Infrastructure: central server forwarding user tokens | | |
-| 673 | Get Jira custom field available values | RESOLVED | Easy | 2026-03-02 | `get_field_options` MCP tool already exists in jira server | | `triage/upstream-673-field-options` |
+| 673 | Get Jira custom field available values | RESOLVED | Easy | 2026-03-02 | `get_field_options` MCP tool already exists in jira server | [PR #1109](https://github.com/sooperset/mcp-atlassian/pull/1109) | `triage/upstream-673-field-options` |
 | 677 | Proxy env vars not respected | OUT_OF_SCOPE | — | 2026-03-02 | Infra/proxy, Jira Cloud | | |
 | 684 | Raw HTML content in Jira issue description | CONFIRMED | Medium | 2026-03-02 | Only Markdown→ADF conversion supported; direct HTML not accepted | | `triage/upstream-684-jira-html-content` |
 | 692 | Update page error message problem | CONFIRMED | Medium | 2026-03-02 | Confluence API returns misleading error on duplicate title | #35 | `fix/upstream-692-duplicate-title-error` |
@@ -99,10 +99,10 @@ Focus: All open issues (bugs and features, any service).
 | 713 | Help tools / documentation | OUT_OF_SCOPE | — | 2026-03-02 | Documentation request | | |
 | 714 | All tool invocations fail | OUT_OF_SCOPE | — | 2026-03-02 | Credential/setup issue, Jira Cloud | | |
 | 715 | Confluence inline comments tool | CONFIRMED | Medium | 2026-03-02 | No get_inline_comments tool; get_comments only returns page-level comments | | `triage/upstream-715-confluence-inline-comments` |
-| 716 | Internal Jira comments (public: false) | RESOLVED | Easy | 2026-03-02 | `add_comment(public=False)` via ServiceDesk API already implemented | | `triage/upstream-716-internal-comments` |
+| 716 | Internal Jira comments (public: false) | RESOLVED | Easy | 2026-03-02 | `add_comment(public=False)` via ServiceDesk API already implemented | [PR #1111](https://github.com/sooperset/mcp-atlassian/pull/1111) | `triage/upstream-716-internal-comments` |
 | 719 | jira_get_sprint_issues ignores fields param | OUT_OF_SCOPE | — | 2026-03-02 | Jira DC | #37 | |
 | 722 | Custom checklist field update fails | OUT_OF_SCOPE | — | 2026-03-02 | Jira DC, third-party plugin | #37 | |
-| 725 | Comment with security/visibility level | RESOLVED | Easy | 2026-03-02 | `comment_visibility` param in add_comment already implemented | | `triage/upstream-725-comment-visibility` |
+| 725 | Comment with security/visibility level | RESOLVED | Easy | 2026-03-02 | `comment_visibility` param in add_comment already implemented | [PR #1112](https://github.com/sooperset/mcp-atlassian/pull/1112) | `triage/upstream-725-comment-visibility` |
 | 735 | jira_transition_issue resolution not set | OUT_OF_SCOPE | — | 2026-03-02 | Jira DC, str vs dict | #37 | |
 | 743 | 'str' object has no attribute 'get' | RESOLVED | — | 2026-03-02 | Fixed in commit 071c522 (isinstance guard). Regression test added | [PR #1106](https://github.com/sooperset/mcp-atlassian/pull/1106) | |
 | 748 | Cursor IDE all tools fail | OUT_OF_SCOPE | — | 2026-03-02 | Jira Cloud, 7 comments, likely env issue | | |
@@ -114,7 +114,7 @@ Focus: All open issues (bugs and features, any service).
 | 832 | Add DeepWiki badge to README | OUT_OF_SCOPE | — | 2026-03-02 | README/documentation only | | |
 | 833 | Add docs URL to GitHub About section | OUT_OF_SCOPE | — | 2026-03-02 | GitHub settings, not code | | |
 | 842 | Person tags/mentions lost on get/update | COMPLEX_DEFER | Hard | 2026-03-02 | Maintainer has 3-option analysis. Architectural. | | |
-| 847 | JSM internal comments (public: false) | RESOLVED | Easy | 2026-03-02 | Same as #716 — `add_comment(public=False)` already works via ServiceDesk API | | `triage/upstream-847-jsm-internal-comments` |
+| 847 | JSM internal comments (public: false) | RESOLVED | Easy | 2026-03-02 | Same as #716 — `add_comment(public=False)` already works via ServiceDesk API | [PR #1116](https://github.com/sooperset/mcp-atlassian/pull/1116) | `triage/upstream-847-jsm-internal-comments` |
 | 850 | Per-request config headers (multi-user) | COMPLEX_DEFER | Hard | 2026-03-02 | Multi-tenant server architecture; requires session isolation | | |
 | 857 | Get remote links from Jira issue | CONFIRMED | Easy | 2026-03-02 | `create_remote_issue_link` exists but GET not implemented | | `triage/upstream-857-get-remote-links` |
 | 858 | OAuth fails — missing refresh token | OUT_OF_SCOPE | — | 2026-03-02 | Jira DC, OAuth | | |
@@ -223,3 +223,4 @@ All 107 issues assessed. Next: create one branch per testable issue (RESOLVED + 
 | 2026-03-02 | 1 | #475, #607, #668, #692, #765, #842, #897, #907 | 2 OUT_OF_SCOPE, 3 CONFIRMED, 1 RESOLVED, 1 CANNOT_REPRODUCE, 1 COMPLEX_DEFER |
 | 2026-03-02 | 2 | All 107 open issues (complete pass) | 3 CONFIRMED, 2 RESOLVED, 2 CANNOT_REPRODUCE, 1 COMPLEX_DEFER, rest OUT_OF_SCOPE or Jira |
 | 2026-03-02 | 3 | All 107 re-examined including features | Expanded to 12 RESOLVED, 26 CONFIRMED; added JTEST Jira project; full branch plan |
+| 2026-03-03 | 4 | Phase 2 execution: all 38 testable branches created | 11 RESOLVED PRs (#1106–#1116); 27 CONFIRMED branches with failing tests pushed |
