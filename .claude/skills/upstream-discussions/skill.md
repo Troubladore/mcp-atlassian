@@ -171,6 +171,10 @@ Use when the discussion already has a correct answer but isn't marked resolved.
 
 ## Post Response
 
+**Auth requirement:** Posting to upstream discussions requires the classic PAT
+(`ghp_`), not the fine-grained PAT (`github_pat_`). Check with `gh auth status`
+and switch if needed: `gh auth login` (select github.com, paste classic token).
+
 Get the discussion's GraphQL node ID first (from the fetch query), then post:
 
 ```bash
@@ -227,6 +231,9 @@ Commit log updates to the feature branch periodically.
 ## Tone Guidelines
 
 - **Factual and concise** — no filler, no "Happy to help!"
+- **Non-confrontational** — never make the asker feel dumb. Soften references to
+  docs/tests: "this test actually covers the pattern you asked about" not "this
+  exact pattern is covered by the test suite." The goal is to help, not lecture.
 - **Link rather than duplicate** — point to PRs, issues, docs
 - **Represent the project** — we're community members helping, not authorities
 - **No performative enthusiasm** — state facts, provide links
