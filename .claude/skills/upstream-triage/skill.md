@@ -154,12 +154,21 @@ EOF
 **CANNOT_REPRODUCE / COMPLEX_DEFER / OUT_OF_SCOPE:** Log only, no upstream
 comment, no issue filed.
 
-### 9. PROMOTE
-If the test is valuable as a regression guard, move it to:
-- `tests/unit/confluence/` (if it can work with mocks)
-- `tests/e2e/cloud/` (if it needs real API)
+### 9. PROMOTE (always do this)
 
-Update the test's marker from `upstream_triage` to `cloud_e2e` or remove it.
+Every triage test that confirms or resolves a real behavior should become a
+permanent test. Do not leave useful coverage only in `tests/upstream_triage/`.
+
+**RESOLVED tests:** Convert to a unit test with mocked responses so it runs
+in CI without live credentials. Add to `tests/unit/confluence/` alongside
+existing tests for the same module.
+
+**CONFIRMED tests (after Phase 2 fix):** The test that proved the bug exists
+becomes the regression guard. Convert to unit test if mockable, otherwise move
+to `tests/e2e/cloud/` with `cloud_e2e` marker.
+
+Ask: "Would this test catch a regression if someone broke this behavior?"
+If yes → promote. If it's testing a one-off reporter scenario → discard.
 
 ## Environment Setup
 
