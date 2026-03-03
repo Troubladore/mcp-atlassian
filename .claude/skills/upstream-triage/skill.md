@@ -15,17 +15,22 @@ description: Use when triaging upstream sooperset/mcp-atlassian issues. Provides
 
 ## Two-Phase Strategy
 
-**Phase 1 (Triage):** Reproduce, classify, record. Comment on upstream only for
-RESOLVED issues. For CONFIRMED bugs, file an issue in our repo with difficulty
-rating and root cause. Do NOT offer PRs or ask the maintainer if they want help.
+**Phase 1 (Triage):** Reproduce, classify, record. For RESOLVED bugs, cut a PR
+with a regression test to upstream. For CONFIRMED bugs, file an issue in our
+repo with difficulty rating. Do NOT offer PRs for confirmed bugs yet.
 
 **Phase 2 (Fix):** Sweep back through CONFIRMED items grouped by difficulty.
-Build PRs in batches of 5-10 and submit them together. This avoids PR-bombing
-the maintainer and lets us do quality work.
+Build PRs in batches of 5-10 and submit together.
+
+## Where Tests Live
+
+Tests belong in the natural location for the code they test — not in any
+special triage directory.
+
+- **Mockable** (no live API needed) → `tests/unit/confluence/`
+- **Needs live API** → `tests/e2e/cloud/` with `@pytest.mark.cloud_e2e`
 
 ## Per-Issue Workflow
-
-For each issue:
 
 ### 1. READ
 ```bash
@@ -39,39 +44,41 @@ gh issue view <NUMBER> --repo sooperset/mcp-atlassian --json title,body,labels,c
 - Can we reproduce it with our infrastructure? If not → CANNOT_REPRODUCE
 
 ### 3. REPRODUCE
-Write a test in `tests/upstream_triage/test_issue_NNN.py`:
+Write a test where it naturally belongs:
 
+**Unit test (mockable):**
 ```python
-"""Reproduction test for upstream issue #NNN: <title>."""
+# tests/unit/confluence/test_pages.py (or appropriate module)
+def test_reported_behavior(self, pages_mixin):
+    """<What the issue reports. Link to upstream issue.>"""
+    # Setup mocks to trigger the bug scenario
+    # Assert expected behavior
+```
 
-from __future__ import annotations
-
-import pytest
-from mcp_atlassian.confluence import ConfluenceFetcher
-from .conftest import TriageInstanceInfo, TriageResourceTracker
-
-pytestmark = pytest.mark.upstream_triage
-
-
-class TestIssueNNN:
-    """Upstream #NNN: <title>."""
+**E2E test (needs live API):**
+```python
+# tests/e2e/cloud/test_confluence_cloud_operations.py
+class TestConfluence<Feature>:
+    """<What the issue reports. Link to upstream issue.>"""
 
     def test_reported_behavior(
         self,
-        triage_confluence: ConfluenceFetcher,
-        triage_instance: TriageInstanceInfo,
-        triage_tracker: TriageResourceTracker,
-        unique_id: str,
+        confluence_fetcher: ConfluenceFetcher,
+        cloud_instance: CloudInstanceInfo,
+        resource_tracker: CloudResourceTracker,
     ) -> None:
-        """<Description of what the issue reports>."""
-        # Setup: create test data
-        # Action: perform the operation that reportedly fails
-        # Assert: check for the reported bug behavior
+        uid = uuid.uuid4().hex[:8]
+        # Setup, action, assert
 ```
 
 ### 4. RUN
 ```bash
-set -a && source .env && set +a && uv run pytest tests/upstream_triage/test_issue_NNN.py --upstream-triage -xvs
+# Unit tests:
+uv run pytest tests/unit/confluence/test_pages.py::TestClassName::test_name -xvs
+
+# E2E tests (needs credentials):
+set -a && source .env && set +a && \
+  uv run pytest tests/e2e/cloud/ --cloud-e2e -k "test_name" -xvs
 ```
 
 ### 5. CLASSIFY
@@ -86,48 +93,74 @@ set -a && source .env && set +a && uv run pytest tests/upstream_triage/test_issu
 |--------|---------|----------|
 | Easy | 1-2 file change, <20 lines | Add expand param, fix filter logic |
 | Medium | 3-5 files, needs tests, <100 lines | New error handling, model changes |
-| Hard | Architectural change, >100 lines | New preprocessing pipeline, round-trip fidelity |
+| Hard | Architectural change, >100 lines | New preprocessing pipeline |
 
 ### 7. RECORD
 Update `docs/upstream-triage-log.md` with status, date, difficulty, and notes.
 
 ### 8. ACT
 
-**RESOLVED:** Comment on the upstream issue with reproduction evidence and
-suggest closure. This is the ONLY status that gets an upstream comment during
-triage phase.
+**RESOLVED:** Cut a branch, open a PR to upstream, then comment on the issue.
+Each RESOLVED issue gets its own PR so the maintainer can accept or reject
+independently.
 
 ```bash
-gh issue comment <NUMBER> --repo sooperset/mcp-atlassian --body "$(cat <<'EOF'
-I attempted to reproduce this issue on Confluence Cloud using the latest code
-(commit `<SHA>`).
+# 1. Cut branch from upstream/main
+git checkout -b fix/upstream-NNN-short-description upstream/main
 
-**Test:** Created a reproduction test targeting the reported behavior.
-**Result:** The issue no longer reproduces — the expected behavior works correctly.
+# 2. The test proving the fix is already in the right place in this repo.
+#    Cherry-pick it or re-add it to the upstream branch.
+
+# 3. Verify tests pass on that branch
+uv run pytest <path/to/test> -xvs
+
+# 4. Push and open PR to upstream
+git push origin fix/upstream-NNN-short-description
+gh pr create \
+  --repo sooperset/mcp-atlassian \
+  --base main \
+  --title "test: add regression test for <issue title> (closes #NNN)" \
+  --body "$(cat <<'EOF'
+Adds a regression test proving that #NNN is resolved.
+
+## What This Does
+<one sentence>
+
+## Test Evidence
+<paste test output>
+
+Closes #NNN
+EOF
+)"
+
+# 5. Comment on the upstream issue
+gh issue comment NNN --repo sooperset/mcp-atlassian --body "$(cat <<'EOF'
+I verified this no longer reproduces on Confluence Cloud (commit `<SHA>`).
+
+**Test:** <link to test in PR>
+**Result:** Passes — the expected behavior works correctly.
+
+PR #<PR_NUMBER> adds a regression test if you'd like the coverage.
 
 <details>
 <summary>Test output</summary>
 
 \`\`\`
-<paste test output>
+<paste output>
 \`\`\`
 
 </details>
-
-This may have been resolved by a subsequent commit. If the reporter can confirm
-the fix, this issue could be closed.
 EOF
 )"
 ```
 
-**CONFIRMED:** File an issue in our repo. Do NOT comment on upstream yet — that
-happens in Phase 2 when we submit the actual PR.
+**CONFIRMED:** File an issue in our repo. Do NOT comment on upstream yet.
 
 ```bash
 gh issue create \
   --repo Troubladore/mcp-atlassian \
   --label "upstream-triage" \
-  --label "<difficulty>" \
+  --label "<difficulty:easy|medium|hard>" \
   --title "Upstream #NNN: <title>" \
   --body "$(cat <<'EOF'
 ## Upstream Issue
@@ -145,50 +178,35 @@ CONFIRMED — reproduces on Confluence Cloud
 ## Difficulty
 <Easy/Medium/Hard> — <why>
 
-## Reproduction Test
-`tests/upstream_triage/test_issue_NNN.py`
+## Regression Test
+<path to test file in this repo>
 EOF
 )"
 ```
 
-**CANNOT_REPRODUCE / COMPLEX_DEFER / OUT_OF_SCOPE:** Log only, no upstream
+**CANNOT_REPRODUCE / COMPLEX_DEFER / OUT_OF_SCOPE:** Log only. No upstream
 comment, no issue filed.
-
-### 9. PROMOTE (always do this)
-
-Every triage test that confirms or resolves a real behavior should become a
-permanent test. Do not leave useful coverage only in `tests/upstream_triage/`.
-
-**RESOLVED tests:** Convert to a unit test with mocked responses so it runs
-in CI without live credentials. Add to `tests/unit/confluence/` alongside
-existing tests for the same module.
-
-**CONFIRMED tests (after Phase 2 fix):** The test that proved the bug exists
-becomes the regression guard. Convert to unit test if mockable, otherwise move
-to `tests/e2e/cloud/` with `cloud_e2e` marker.
-
-Ask: "Would this test catch a regression if someone broke this behavior?"
-If yes → promote. If it's testing a one-off reporter scenario → discard.
 
 ## Environment Setup
 
-Tests use the same credentials as the MCP server, loaded from `.env`:
-- `CONFLUENCE_URL` — your Confluence Cloud URL (with /wiki)
-- `CONFLUENCE_USERNAME` — your Atlassian email
-- `CONFLUENCE_API_TOKEN` — your API token
-- `TRIAGE_SPACE_KEY` — defaults to `MCPTEST`
+Tests use credentials from `.env` in the project root (gitignored):
+```
+CONFLUENCE_URL=https://eruditis.atlassian.net/wiki
+CONFLUENCE_USERNAME=eric@eruditis.com
+CONFLUENCE_API_TOKEN=<token>
+CONFLUENCE_TEST_PAGE_ID=2570944513  (page in MCPTEST space)
+TRIAGE_SPACE_KEY=MCPTEST
+```
 
-Run tests with:
+Run E2E tests:
 ```bash
-set -a && source .env && set +a && uv run pytest tests/upstream_triage/ --upstream-triage -xvs
+set -a && source .env && set +a && uv run pytest tests/e2e/cloud/ --cloud-e2e -xvs
 ```
 
 ## Comment Etiquette
 
-- Only comment on RESOLVED issues during triage phase
-- For CONFIRMED issues, comment when submitting the PR (Phase 2)
-- Polite, factual, includes test evidence
-- Always mention commit SHA tested against
+- Only comment upstream when you have a PR to attach (RESOLVED) or a fix (Phase 2)
+- Never say "I can fix this if you want" — just do the work
+- Polite, factual, includes test output and commit SHA
+- Each issue gets its own PR — never bundle multiple issues into one PR
 - Never mark review conversations as resolved
-- "Read the room" — if the issue thread is contentious, tread carefully
-- Never say "I can fix this if you want" — just do the work and submit it
