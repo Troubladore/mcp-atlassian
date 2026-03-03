@@ -198,6 +198,11 @@ Update `docs/upstream-triage-log.md` on `eruditis/main`:
 
 Open upstream PR right after pushing. Do not batch — each issue is its own PR.
 
+**GitHub issue linking requires `Closes #NNN` on its own line** at the end of
+the PR body — not embedded in a sentence, not inside a code block or parentheses.
+The title can say `(closes #NNN)` as a hint but it is not sufficient on its own.
+Always verify with `gh pr view NNN --repo sooperset/mcp-atlassian --json body --jq '.body' | grep -i closes`.
+
 ```bash
 gh pr create \
   --repo sooperset/mcp-atlassian \
@@ -216,6 +221,14 @@ Adds a regression test proving that #NNN is resolved.
 Closes #NNN
 EOF
 )"
+```
+
+**If a PR was created without `Closes #NNN`**, fix it with:
+```bash
+BODY=$(gh pr view PR_NUM --repo sooperset/mcp-atlassian --json body --jq '.body')
+gh pr edit PR_NUM --repo sooperset/mcp-atlassian --body "$BODY
+
+Closes #NNN"
 ```
 
 Then **immediately** comment on the upstream issue:
