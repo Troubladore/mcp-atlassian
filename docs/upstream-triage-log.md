@@ -4,7 +4,6 @@ Tracking document for systematic triage of upstream `sooperset/mcp-atlassian` is
 Focus: Confluence Cloud bugs. Working oldest to newest.
 
 **Test space:** MCPTEST (Confluence Cloud)
-**Test directory:** `tests/upstream_triage/`
 **Skill:** `.claude/skills/upstream-triage/`
 
 ## Status Key
@@ -28,8 +27,8 @@ Focus: Confluence Cloud bugs. Working oldest to newest.
 
 ## Triage Log
 
-| Issue # | Title | Status | Difficulty | Date | Notes | Our Issue |
-|---------|-------|--------|------------|------|-------|-----------|
+| Issue # | Title | Status | Difficulty | Date | Notes | Our Issue | Fix Branch |
+|---------|-------|--------|------------|------|-------|-----------|------------|
 | 332 | get jira issue links | OUT_OF_SCOPE | — | 2026-03-02 | Jira only, mislabeled as bug | #37 |
 | 420 | Can't connect to mcp container, random port | OUT_OF_SCOPE | — | 2026-03-02 | Docker/infra, Server/DC | |
 | 435 | Jira tool not registered on 2nd invocation | OUT_OF_SCOPE | — | 2026-03-02 | Jira Cloud | #37 |
@@ -46,7 +45,7 @@ Focus: Confluence Cloud bugs. Working oldest to newest.
 | 593 | Bulk issue creation wrong top-level key | OUT_OF_SCOPE | — | 2026-03-02 | Jira Cloud | #37 |
 | 596 | jira_get_user_profile crashes on `me` | OUT_OF_SCOPE | — | 2026-03-02 | Jira Cloud | #37 |
 | 601 | max_results ignored in jira_search | OUT_OF_SCOPE | — | 2026-03-02 | Jira Cloud | #37 |
-| 607 | Can't find author_name, created_on, last_modified | CONFIRMED | Easy | 2026-03-02 | Missing `history` in expand params | #34 |
+| 607 | Can't find author_name, created_on, last_modified | CONFIRMED | Easy | 2026-03-02 | Missing `history` in expand params | #34 | `fix/upstream-607-page-metadata` |
 | 608 | Can't add image/media to Jira ticket | OUT_OF_SCOPE | — | 2026-03-02 | Jira Cloud, attachment | #37 |
 | 613 | Tool names stripped of jira_ prefix | OUT_OF_SCOPE | — | 2026-03-02 | Jira Cloud | #37 |
 | 618 | Attachment upload needs server-side path | OUT_OF_SCOPE | — | 2026-03-02 | Jira DC, architectural | #37 |
@@ -60,7 +59,7 @@ Focus: Confluence Cloud bugs. Working oldest to newest.
 | 668 | Error editing Confluence page (version/status) | OUT_OF_SCOPE | — | 2026-03-02 | Server/DC only, upstream atlassian-python-api bug | |
 | 670 | jira_create_issue fails due to issueType | OUT_OF_SCOPE | — | 2026-03-02 | Jira Cloud | #37 |
 | 677 | Proxy env vars not respected | OUT_OF_SCOPE | — | 2026-03-02 | Infra/proxy, Jira Cloud | |
-| 692 | Update page error message problem | CONFIRMED | Medium | 2026-03-02 | Confluence API returns misleading error on duplicate title | #35 |
+| 692 | Update page error message problem | CONFIRMED | Medium | 2026-03-02 | Confluence API returns misleading error on duplicate title | #35 | `fix/upstream-692-duplicate-title-error` |
 | 693 | Can't access via Docker MCP Toolkit | OUT_OF_SCOPE | — | 2026-03-02 | Docker toolkit/infra | |
 | 709 | jira_create_issue fails for datetime fields | OUT_OF_SCOPE | — | 2026-03-02 | Jira DC | #37 |
 | 711 | Jira DC no actions after connect | OUT_OF_SCOPE | — | 2026-03-02 | Jira DC | #37 |
@@ -79,11 +78,27 @@ Focus: Confluence Cloud bugs. Working oldest to newest.
 | 884 | 403 from DDoS protection (User-Agent) | OUT_OF_SCOPE | — | 2026-03-02 | Jira DC | #37 |
 | 889 | Wiki page link wrong format | OUT_OF_SCOPE | — | 2026-03-02 | Jira DC | #37 |
 | 897 | Date object not returned in page data | RESOLVED | — | 2026-03-02 | Date macro content IS preserved. Regression test added | [PR #1107](https://github.com/sooperset/mcp-atlassian/pull/1107) |
-| 907 | confluence_search empty for space queries | CONFIRMED | Easy | 2026-03-02 | CQL `type=space` returns 0 results. `content` key vs `space` key | #36 |
+| 907 | confluence_search empty for space queries | CONFIRMED | Easy | 2026-03-02 | CQL `type=space` returns 0 results. `content` key vs `space` key | #36 | `fix/upstream-907-cql-space-search` |
 | 909 | Orphaned processes after close | OUT_OF_SCOPE | — | 2026-03-02 | Infra/process management | |
 | 1082 | Cloud-only tools exposed to DC agents | OUT_OF_SCOPE | — | 2026-03-02 | Jira DC, toolset filtering. Also affects Confluence. | #37 |
 | 1096 | per-request cloud_id overridden | OUT_OF_SCOPE | — | 2026-03-02 | Mixed DC+Cloud OAuth, auth only | |
 | 1097 | DCR redirect_uri loop | OUT_OF_SCOPE | — | 2026-03-02 | OAuth, not Confluence content | |
+
+## Phase 2: Next Steps
+
+All 107 issues triaged. No PENDING items remain. Work continues in **Phase 2: Fix mode**.
+
+**Start here:** implement fixes for Easy CONFIRMED items, then promote their fix branch to an upstream PR.
+
+| Priority | Issue | Difficulty | Fix Branch | What to do |
+|----------|-------|------------|------------|------------|
+| 1 | #607 | Easy | `fix/upstream-607-page-metadata` | Add `history` to expand params in `pages.py` lines 66 and 75 |
+| 2 | #907 | Easy | `fix/upstream-907-cql-space-search` | Handle `space` key in `search.py` result processing |
+| 3 | #692 | Medium | `fix/upstream-692-duplicate-title-error` | Detect/interpret duplicate title HTTP errors in `update_page()` |
+
+**Upstream PRs awaiting maintainer decision:**
+- PR #1106 — regression test for #743 (str API response)
+- PR #1107 — regression test for #897 (date macro)
 
 ## Deferred Issues (Our Repo)
 
