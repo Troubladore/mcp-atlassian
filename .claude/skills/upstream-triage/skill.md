@@ -1,6 +1,6 @@
 ---
 name: upstream-triage
-description: Use when triaging upstream sooperset/mcp-atlassian issues. Provides the workflow for reproducing, classifying, and commenting on Confluence Cloud bugs.
+description: Use when triaging upstream sooperset/mcp-atlassian issues. Provides the workflow for writing tests and creating branches for all open issues (bugs and features).
 ---
 
 # Upstream Issue Triage
@@ -8,118 +8,202 @@ description: Use when triaging upstream sooperset/mcp-atlassian issues. Provides
 ## Quick Start
 
 1. Read the tracking log: `docs/upstream-triage-log.md`
-2. Find the next PENDING issues (oldest first)
-3. Pick 4-5 issues to work in parallel
+2. Find the next issues without a `Fix Branch` entry (oldest first)
+3. Process in batches — dispatch parallel background agents for independent branches
 4. Follow the per-issue workflow below
-5. Update the tracking log and commit
+5. Update the tracking log and commit to `eruditis/main`
+
+## Scope
+
+**In scope (write a test for everything testable):**
+- Bugs and feature requests, any service (Confluence, Jira, JSM)
+- Cloud and Server/DC (unit tests work for both; E2E tests target Cloud)
+
+**OUT_OF_SCOPE (no test possible — log only):**
+- Pure infrastructure: Docker config, SIGTERM handling, HTTP transport, port mapping
+- Third-party plugins: Xray, Zephyr, ProForma (separate product licenses)
+- Documentation requests, README changes, GitHub metadata
+- Client-side compatibility (ChatGPT, GPT Agent client support)
+- Complex auth infrastructure: OAuth flows, token forwarding, multi-tenant server
+
+## Red/Green TDD
+
+Every issue gets a test. The test result determines status:
+- Test **passes** (GREEN) → RESOLVED — feature works, submit upstream PR immediately
+- Test **fails** (RED) → CONFIRMED — feature missing or bug present, branch sits until fixed
+
+CONFIRMED branch tests must genuinely fail, not just skip. If you can't write a failing test, classify as CANNOT_REPRODUCE.
 
 ## Two-Phase Strategy
 
-**Phase 1 (Triage):** Reproduce, classify, record. For RESOLVED bugs, cut a PR
-with a regression test to upstream. For CONFIRMED bugs, file an issue in our
-repo with difficulty rating. Do NOT offer PRs for confirmed bugs yet.
+**Phase 1 (Triage):** One branch per issue. Write test. Classify. For RESOLVED, open upstream PR and comment on the issue immediately — do not defer. For CONFIRMED, branch sits with failing test.
 
-**Phase 2 (Fix):** Sweep back through CONFIRMED items grouped by difficulty.
-Build PRs in batches of 5-10 and submit together.
+**Phase 2 (Fix):** Sweep CONFIRMED items by difficulty. Implement fixes on existing branches. When test goes GREEN, open upstream PR.
 
 ## Where Tests Live
 
-Tests belong in the natural location for the code they test — not in any
-special triage directory.
+Tests belong in the natural location — not in any special triage directory.
 
-- **Mockable** (no live API needed) → `tests/unit/confluence/`
-- **Needs live API** → `tests/e2e/cloud/` with `@pytest.mark.cloud_e2e`
+| Content | Location |
+|---------|----------|
+| Unit test (mockable, any service) | `tests/unit/{confluence,jira}/` |
+| Confluence Cloud E2E | `tests/e2e/cloud/test_confluence_cloud_operations.py` |
+| Jira Cloud E2E | `tests/e2e/cloud/test_jira_cloud_operations.py` |
+
+## Branch Naming
+
+```
+triage/upstream-NNN-short-description   ← all new triage branches
+fix/upstream-NNN-short-description      ← only for previously confirmed bugs (pre-existing convention)
+```
+
+All branches cut from `main` (the clean upstream mirror).
+
+## Environment Setup
+
+`.env` in project root (gitignored). The `CLOUD_E2E_*` vars are aliases required by the E2E test framework:
+
+```
+# Confluence Cloud
+CONFLUENCE_URL=https://eruditis.atlassian.net/wiki
+CONFLUENCE_USERNAME=eric@eruditis.com
+CONFLUENCE_API_TOKEN=<token>
+CONFLUENCE_TEST_PAGE_ID=2570944513   # page in MCPTEST space
+TRIAGE_SPACE_KEY=MCPTEST
+
+# Jira Cloud
+JIRA_URL=https://eruditis.atlassian.net
+JIRA_USERNAME=eric@eruditis.com
+JIRA_API_TOKEN=<same token>
+JIRA_TEST_PROJECT_KEY=JTEST
+
+# Cloud E2E aliases (required by tests/e2e/cloud/conftest.py)
+CLOUD_E2E_CONFLUENCE_URL=<same as CONFLUENCE_URL>
+CLOUD_E2E_JIRA_URL=<same as JIRA_URL>
+CLOUD_E2E_USERNAME=<same as CONFLUENCE_USERNAME>
+CLOUD_E2E_API_TOKEN=<same as CONFLUENCE_API_TOKEN>
+CLOUD_E2E_SPACE_KEY=MCPTEST
+CLOUD_E2E_PROJECT_KEY=JTEST
+```
+
+Run E2E tests:
+```bash
+set -a && source .env && set +a && uv run pytest tests/e2e/cloud/ --cloud-e2e -xvs
+```
+
+Run unit tests:
+```bash
+uv run pytest tests/unit/ -xvs
+```
 
 ## Per-Issue Workflow
 
 ### 1. READ
 ```bash
-gh issue view <NUMBER> --repo sooperset/mcp-atlassian --json title,body,labels,comments,createdAt
+gh issue view <NUMBER> --repo sooperset/mcp-atlassian \
+  --json title,body,labels,comments,createdAt \
+  --jq '{title:.title,labels:[.labels[].name],body:.body}'
 ```
 
 ### 2. ASSESS
-- Is this a Confluence Cloud bug? If not → OUT_OF_SCOPE
+- Is it testable in code? If pure infra/docs/client-side → OUT_OF_SCOPE
 - Does it have >5 comments with failed fix attempts? → COMPLEX_DEFER
-- Is there an active PR? → OUT_OF_SCOPE (already being addressed)
-- Can we reproduce it with our infrastructure? If not → CANNOT_REPRODUCE
+- Is there an active PR addressing it? → note in log, skip
+- Does the feature/fix already exist in the codebase? → RESOLVED
+- Can we write a meaningful failing test? → CONFIRMED or CANNOT_REPRODUCE
 
-### 3. REPRODUCE
-Write a test where it naturally belongs:
+Cross-reference against the MCP tool list before writing tests:
+```bash
+grep "^async def\|^def " src/mcp_atlassian/servers/{jira,confluence}.py | sed 's/async def //' | sed 's/(.*//'
+```
+
+### 3. WRITE TEST
 
 **Unit test (mockable):**
 ```python
-# tests/unit/confluence/test_pages.py (or appropriate module)
-def test_reported_behavior(self, pages_mixin):
-    """<What the issue reports. Link to upstream issue.>"""
-    # Setup mocks to trigger the bug scenario
-    # Assert expected behavior
+# tests/unit/{confluence,jira}/test_<module>.py
+class Test<Feature>:
+    """<What the issue requests. Link: https://github.com/sooperset/mcp-atlassian/issues/NNN>"""
+
+    def test_<behavior>(self, <mixin_fixture>):
+        # For RESOLVED: assert the feature works as expected
+        # For CONFIRMED: assert the expected behavior — will fail until fixed
+        ...
 ```
 
 **E2E test (needs live API):**
 ```python
-# tests/e2e/cloud/test_confluence_cloud_operations.py
-class TestConfluence<Feature>:
-    """<What the issue reports. Link to upstream issue.>"""
+# tests/e2e/cloud/test_{confluence,jira}_cloud_operations.py
+class Test<Feature>:
+    """<What the issue requests. Link: https://github.com/sooperset/mcp-atlassian/issues/NNN>"""
 
-    def test_reported_behavior(
+    def test_<behavior>(
         self,
-        confluence_fetcher: ConfluenceFetcher,
+        {confluence,jira}_fetcher: {Confluence,Jira}Fetcher,
         cloud_instance: CloudInstanceInfo,
         resource_tracker: CloudResourceTracker,
     ) -> None:
         uid = uuid.uuid4().hex[:8]
         # Setup, action, assert
+        # Always use resource_tracker.add_{jira_issue,confluence_page}() for cleanup
 ```
 
 ### 4. RUN
 ```bash
-# Unit tests:
-uv run pytest tests/unit/confluence/test_pages.py::TestClassName::test_name -xvs
+# Unit:
+uv run pytest tests/unit/.../test_file.py::TestClass::test_name -xvs
 
-# E2E tests (needs credentials):
+# E2E:
 set -a && source .env && set +a && \
-  uv run pytest tests/e2e/cloud/ --cloud-e2e -k "test_name" -xvs
+  uv run pytest tests/e2e/cloud/test_<file>.py::TestClass --cloud-e2e -xvs
 ```
 
 ### 5. CLASSIFY
-- Test passes (bug NOT present) → RESOLVED
-- Test fails (bug IS present) → CONFIRMED
-- Can't write a meaningful test → CANNOT_REPRODUCE
-- Too complex → COMPLEX_DEFER
+- GREEN (passes) → **RESOLVED**
+- RED (fails) → **CONFIRMED**
+- Can't write meaningful test → **CANNOT_REPRODUCE**
+- Too complex/architectural → **COMPLEX_DEFER**
 
 ### 6. RATE DIFFICULTY (CONFIRMED only)
 
-| Rating | Meaning | Examples |
-|--------|---------|----------|
-| Easy | 1-2 file change, <20 lines | Add expand param, fix filter logic |
-| Medium | 3-5 files, needs tests, <100 lines | New error handling, model changes |
-| Hard | Architectural change, >100 lines | New preprocessing pipeline |
+| Rating | Meaning |
+|--------|---------|
+| Easy | 1-2 files, <20 lines — expose existing method, fix param, adjust filter |
+| Medium | 3-5 files, <100 lines — new tool, error handling, model field |
+| Hard | Architectural, >100 lines — new pipeline, multi-instance, auth overhaul |
 
-### 7. RECORD
-Update `docs/upstream-triage-log.md` with status, date, difficulty, and notes.
+### 7. COMMIT & PUSH
 
-### 8. ACT
-
-**RESOLVED:** Cut a branch, open a PR to upstream, then comment on the issue.
-Each RESOLVED issue gets its own PR so the maintainer can accept or reject
-independently.
+After test runs (pass or fail is expected — that's the point):
 
 ```bash
-# 1. Cut branch from upstream/main
-git checkout -b fix/upstream-NNN-short-description upstream/main
+# Fix any ruff errors in files you touched (tech debt reduction)
+uv run ruff format <file>
+uv run ruff check --fix <file>
 
-# 2. The test proving the fix is already in the right place in this repo.
-#    Cherry-pick it or re-add it to the upstream branch.
+git add <test_file>
+git commit -m "test: add {regression,triage} test for <feature> (upstream #NNN)
 
-# 3. Verify tests pass on that branch
-uv run pytest <path/to/test> -xvs
+Co-Authored-By: Claude Sonnet 4.6 (1M context) <noreply@anthropic.com>"
 
-# 4. Push and open PR to upstream
-git push origin fix/upstream-NNN-short-description
+git push origin triage/upstream-NNN-short-description
+```
+
+### 8. RECORD
+
+Update `docs/upstream-triage-log.md` on `eruditis/main`:
+- Status, Difficulty, Date, Notes, Fix Branch column
+
+### 9. ACT — RESOLVED (do this immediately, never defer)
+
+Open upstream PR right after pushing. Do not batch — each issue is its own PR.
+
+```bash
 gh pr create \
   --repo sooperset/mcp-atlassian \
   --base main \
-  --title "test: add regression test for <issue title> (closes #NNN)" \
+  --head Troubladore:triage/upstream-NNN-short-description \
+  --title "test: add regression test for <title> (closes #NNN)" \
   --body "$(cat <<'EOF'
 Adds a regression test proving that #NNN is resolved.
 
@@ -127,15 +211,18 @@ Adds a regression test proving that #NNN is resolved.
 <one sentence>
 
 ## Test Evidence
-<paste test output>
+<paste test output showing PASSED>
 
 Closes #NNN
 EOF
 )"
+```
 
-# 5. Comment on the upstream issue
+Then **immediately** comment on the upstream issue:
+
+```bash
 gh issue comment NNN --repo sooperset/mcp-atlassian --body "$(cat <<'EOF'
-I verified this no longer reproduces on Confluence Cloud (commit `<SHA>`).
+Verified on Confluence/Jira Cloud (commit `<SHA>`).
 
 **Test:** <link to test in PR>
 **Result:** Passes — the expected behavior works correctly.
@@ -154,59 +241,44 @@ EOF
 )"
 ```
 
-**CONFIRMED:** File an issue in our repo. Do NOT comment on upstream yet.
+### ACT — CONFIRMED
+
+Branch sits with failing test. No upstream comment yet.
+Branch name and failing test are recorded in the log. Phase 2 will implement the fix.
+
+### ACT — CANNOT_REPRODUCE / COMPLEX_DEFER / OUT_OF_SCOPE
+
+Log only. No branch needed.
+
+## Code Quality Rule
+
+**When touching any file, fix pre-existing ruff errors in that file.**
+This reduces tech debt incrementally without needing dedicated cleanup PRs.
 
 ```bash
-gh issue create \
-  --repo Troubladore/mcp-atlassian \
-  --label "upstream-triage" \
-  --label "<difficulty:easy|medium|hard>" \
-  --title "Upstream #NNN: <title>" \
-  --body "$(cat <<'EOF'
-## Upstream Issue
-sooperset/mcp-atlassian#NNN
-
-## Status
-CONFIRMED — reproduces on Confluence Cloud
-
-## Root Cause
-<brief technical description>
-
-## Fix Approach
-<what needs to change and where>
-
-## Difficulty
-<Easy/Medium/Hard> — <why>
-
-## Regression Test
-<path to test file in this repo>
-EOF
-)"
+uv run ruff format <path/to/file>
+uv run ruff check --fix <path/to/file>
 ```
 
-**CANNOT_REPRODUCE / COMPLEX_DEFER / OUT_OF_SCOPE:** Log only. No upstream
-comment, no issue filed.
+Never suppress warnings. Never add `# noqa` unless the rule is genuinely inapplicable.
 
-## Environment Setup
+## Parallel Processing
 
-Tests use credentials from `.env` in the project root (gitignored):
+For batches of independent branches, dispatch background agents:
+
 ```
-CONFLUENCE_URL=https://eruditis.atlassian.net/wiki
-CONFLUENCE_USERNAME=eric@eruditis.com
-CONFLUENCE_API_TOKEN=<token>
-CONFLUENCE_TEST_PAGE_ID=2570944513  (page in MCPTEST space)
-TRIAGE_SPACE_KEY=MCPTEST
+Agent A: triage/upstream-NNN-a, triage/upstream-NNN-b, triage/upstream-NNN-c
+Agent B: triage/upstream-NNN-d, triage/upstream-NNN-e, triage/upstream-NNN-f
 ```
 
-Run E2E tests:
-```bash
-set -a && source .env && set +a && uv run pytest tests/e2e/cloud/ --cloud-e2e -xvs
-```
+Each agent works on separate branches — no git conflicts. Report results back,
+then update the triage log in one commit on `eruditis/main`.
 
 ## Comment Etiquette
 
-- Only comment upstream when you have a PR to attach (RESOLVED) or a fix (Phase 2)
+- Comment on the upstream issue immediately when PR is opened (RESOLVED)
 - Never say "I can fix this if you want" — just do the work
 - Polite, factual, includes test output and commit SHA
 - Each issue gets its own PR — never bundle multiple issues into one PR
 - Never mark review conversations as resolved
+- Comment language works for both bugs ("no longer reproduces") and features ("already implemented")
