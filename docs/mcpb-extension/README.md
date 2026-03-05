@@ -1,6 +1,8 @@
-# Eruditis Atlassian Extension for Claude Desktop
+# Eruditis Atlassian MCP Server
 
 Connect Claude to Eruditis Confluence and Jira via the [mcp-atlassian](https://github.com/sooperset/mcp-atlassian) MCP server running in a sandboxed Docker container.
+
+Supports both **Claude Code (CLI)** and **Claude Desktop** with the same security model: container isolation, network egress filtering, and least-privilege defaults.
 
 ## Features
 
@@ -9,23 +11,86 @@ Connect Claude to Eruditis Confluence and Jira via the [mcp-atlassian](https://g
 - **Read-only by default**: Write operations must be explicitly enabled
 - **Configurable toolsets**: Control which tool categories are available via TOOLSETS
 - **Delete protection**: Delete operations blocked by default, even when writes are enabled
-- **Encrypted credentials**: API tokens stored in OS keychain (macOS Keychain or Windows Credential Manager)
 - **Automatic setup**: Filtering proxy auto-starts on first use, no manual configuration needed
 
-## Prerequisites
+## Prerequisites (Both Clients)
 
-- **Docker Desktop** must be installed and running on your machine
+- **Docker Desktop** must be installed and **running**
   - macOS/Windows: [Download Docker Desktop](https://docker.com/products/docker-desktop)
   - Linux/WSL2: Docker Engine with Docker CLI
-- **Node.js 18+** installed on your system (`node --version` to check)
-  - Download from [nodejs.org](https://nodejs.org)
-- **Claude Desktop** (latest version)
-  - Download from [claude.ai/download](https://claude.ai/download)
-- **Disable "Use built-in Node.js for MCP"** in Claude Desktop settings
-  - Go to **Settings > Extensions** and toggle off "Use built-in Node.js for MCP"
-  - See [Known Issue](#known-issue-built-in-nodejs) below for details
+  - WSL2 users: Enable WSL integration in Docker Desktop > Settings > Resources > WSL integration
+- **Atlassian API Token**: Generate at [id.atlassian.com/manage-profile/security/api-tokens](https://id.atlassian.com/manage-profile/security/api-tokens)
 
-## Installation
+---
+
+## Claude Code (CLI) Setup
+
+The launcher script (`claude-code-launcher.sh`) manages the Docker containers directly via shell — no Node.js required.
+
+### Step 1: Create Credentials File
+
+```bash
+mkdir -p ~/.config/mcp-atlassian
+cat > ~/.config/mcp-atlassian/.env << 'EOF'
+ATLASSIAN_URL=https://your-instance.atlassian.net
+ATLASSIAN_EMAIL=your.email@example.com
+ATLASSIAN_API_TOKEN=your_api_token
+TOOLSETS=all
+READ_ONLY_MODE=false
+ALLOW_DELETE_TOOLS=false
+EOF
+chmod 600 ~/.config/mcp-atlassian/.env
+```
+
+### Step 2: Register the MCP Server
+
+```bash
+claude mcp add --scope user atlassian -- /path/to/docs/mcpb-extension/claude-code-launcher.sh
+```
+
+This adds the server to `~/.claude.json` at user scope (available in all projects).
+
+### Step 3: Pull the Docker Image
+
+```bash
+docker pull ghcr.io/troubladore/mcp-atlassian:v0.11.16
+```
+
+### Step 4: Verify
+
+Start a new Claude Code session (or run `/mcp` to reconnect), then ask Claude to list your Jira projects or search Confluence.
+
+### Troubleshooting (Claude Code)
+
+The launcher script performs pre-flight checks and prints diagnostics to stderr. If tools don't appear:
+
+```bash
+# 1. Is Docker running?
+docker info >/dev/null 2>&1 && echo "OK" || echo "FAIL: Start Docker Desktop"
+
+# 2. Run the launcher manually to see errors
+timeout 10 bash /path/to/claude-code-launcher.sh 2>&1
+
+# 3. Is the proxy healthy?
+docker ps --filter name=eruditis-atlassian-proxy
+
+# 4. Reconnect without restarting Claude Code
+# Type /mcp in your session
+```
+
+**Common issue on WSL2**: Docker Desktop must be running on the Windows host. If it's not, the `docker` command resolves (symlink exists) but execution fails silently. The launcher script detects this and prints a clear error.
+
+---
+
+## Claude Desktop Setup
+
+The `.mcpb` extension bundles a Node.js wrapper that manages Docker containers.
+
+### Additional Prerequisites
+
+- **Node.js 18+** installed on your system (`node --version` to check)
+- **Disable "Use built-in Node.js for MCP"** in Claude Desktop settings
+  - See [Known Issue](#known-issue-built-in-nodejs) below
 
 ### Step 1: Generate an Atlassian API Token
 
@@ -33,7 +98,18 @@ Connect Claude to Eruditis Confluence and Jira via the [mcp-atlassian](https://g
 2. Click "Create API token"
 3. Name it "Claude MCP" and copy the token (you'll need it in the next step)
 
-### Step 2: Pull the Docker Image (First Time Only)
+### Step 2: Install the Extension
+
+1. Open Claude Desktop
+2. Go to **Settings > Extensions**
+3. Find "Eruditis Atlassian" and click **Install** (or double-click the `.mcpb` file if shared directly)
+4. Fill in the configuration dialog:
+   - **Atlassian Site URL**: `https://eruditis.atlassian.net`
+   - **Atlassian Email**: Your email address used for Atlassian
+   - **API Token**: Paste the token from Step 1
+   - **Enable Write Operations**: Leave as `false` (read-only mode)
+
+### Step 3: Pull the Docker Image (First Time Only)
 
 Open a terminal and run:
 
@@ -42,17 +118,6 @@ docker pull ghcr.io/troubladore/mcp-atlassian:v0.11.10
 ```
 
 This ensures the Docker image is available before you try to use the extension.
-
-### Step 3: Install the Extension
-
-1. Open Claude Desktop
-2. Go to **Settings > Extensions**
-3. Find "Eruditis Atlassian" and click **Install** (or double-click the `.mcpb` file if shared directly)
-4. Fill in the configuration dialog:
-   - **Atlassian Site URL**: `https://eruditis.atlassian.net`
-   - **Atlassian Email**: Your Gmail address used for Atlassian
-   - **API Token**: Paste the token from Step 1
-   - **Enable Write Operations**: Leave as `false` (read-only mode)
 
 ### Step 4: Test It
 
@@ -68,7 +133,9 @@ or
 Show me the open Jira issues in the DEV project
 ```
 
-## Configuration Options
+---
+
+## Configuration Options (Both Clients)
 
 ### Toolsets
 
@@ -132,7 +199,8 @@ The extension automatically manages a filtering HTTP proxy that allows connectio
 
 ### Credential Security
 
-- **Encrypted storage**: API tokens stored in OS keychain (macOS Keychain or Windows Credential Manager)
+- **Claude Desktop**: API tokens stored in OS keychain (macOS Keychain or Windows Credential Manager)
+- **Claude Code**: API tokens stored in `~/.config/mcp-atlassian/.env` (chmod 600)
 - **Never logged**: Credentials masked in all log output
 - **Minimal exposure**: Only passed via environment variables to container
 
