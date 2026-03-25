@@ -375,8 +375,16 @@ def _create_user_config_for_fetcher(
 
     username_for_config: str | None = credentials.get("user_email_context")
 
+    has_user_context = bool(username_for_config)
+    credential_field_count = len(credentials)
+    has_cloud_id = cloud_id is not None
+
     logger.debug(
-        f"Creating user config for fetcher. Auth type: {auth_type}, Credentials keys: {credentials.keys()}, Cloud ID: {cloud_id}"
+        "Creating user config for fetcher. auth_type=%s, credential_field_count=%d, has_user_context=%s, has_cloud_id=%s",
+        auth_type,
+        credential_field_count,
+        has_user_context,
+        has_cloud_id,
     )
 
     common_args: dict[str, Any] = {
