@@ -1,12 +1,21 @@
 import re
+from urllib.parse import urlparse
 
 import pytest
+from bs4 import BeautifulSoup
 
 from mcp_atlassian.preprocessing.confluence import ConfluencePreprocessor
 from mcp_atlassian.preprocessing.jira import JiraPreprocessor
 from tests.fixtures.confluence_mocks import MOCK_COMMENTS_RESPONSE, MOCK_PAGE_RESPONSE
 from tests.fixtures.jira_mocks import MOCK_JIRA_ISSUE_RESPONSE
 from tests.utils.mocks import MockConfluenceClient
+
+_URL_RE = re.compile(r"https?://[^\s)>\]\"']+")
+
+
+def _extract_urls(text: str) -> set[str]:
+    """Extract URLs from text for assertion comparisons."""
+    return set(_URL_RE.findall(text))
 
 
 @pytest.fixture
@@ -394,7 +403,11 @@ This is some **bold** and *italic* text.
     assert "<strong>" in storage_format or "<b>" in storage_format  # Bold
     assert "<em>" in storage_format or "<i>" in storage_format  # Italic
     assert "<a href=" in storage_format.lower()  # Link
-    assert "example.com" in storage_format
+    soup = BeautifulSoup(storage_format, "html.parser")
+    hrefs = {a.get("href") for a in soup.find_all("a", href=True)}
+    assert any(urlparse(href).hostname == "example.com" for href in hrefs), (
+        f"example.com not found in hrefs: {hrefs}"
+    )
 
 
 def test_process_confluence_profile_macro(preprocessor_with_confluence):
@@ -1229,12 +1242,14 @@ class TestPanelBlocks:
         """Test panel with URL link through the full clean_jira_text pipeline (the reported bug)."""
         input_text = "{panel:title=Spec}[https://example.com]{panel}"
         result = preprocessor.clean_jira_text(input_text)
-        assert "https://example.com" in result, f"URL dropped in pipeline: {result}"
+        assert "https://example.com" in _extract_urls(result), (
+            f"URL dropped in pipeline: {result}"
+        )
 
     def test_bare_link_without_panel(self, preprocessor):
         """Test bare [url] link is preserved outside panels too."""
         result = preprocessor.jira_to_markdown("[https://example.com] more text")
-        assert "https://example.com" in result, f"URL dropped: {result}"
+        assert "https://example.com" in _extract_urls(result), f"URL dropped: {result}"
 
 
 # Code block placeholder protection tests
