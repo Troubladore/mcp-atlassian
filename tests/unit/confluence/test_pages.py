@@ -3141,3 +3141,69 @@ class TestUpdatePageSection:
             )
 
         pages_mixin.preprocessor.markdown_to_confluence_storage.assert_not_called()
+
+
+class TestContentProperties:
+    """Tests for arbitrary content property get/set."""
+
+    @pytest.fixture
+    def pages_mixin(self, confluence_client):
+        """Create a PagesMixin instance for testing."""
+        with patch(
+            "mcp_atlassian.confluence.pages.ConfluenceClient.__init__"
+        ) as mock_init:
+            mock_init.return_value = None
+            mixin = PagesMixin()
+            mixin.confluence = confluence_client.confluence
+            mixin.config = confluence_client.config
+            mixin.preprocessor = confluence_client.preprocessor
+            return mixin
+
+    def test_get_content_properties_all(self, pages_mixin):
+        """Get all properties returns {key: value} dict."""
+        pages_mixin.confluence.get_page_properties.return_value = {
+            "results": [
+                {"key": "content-appearance-published", "value": "full-width"},
+                {"key": "content-appearance-draft", "value": "fixed-width"},
+            ]
+        }
+
+        result = pages_mixin.get_content_properties("123456789")
+
+        pages_mixin.confluence.get_page_properties.assert_called_once_with("123456789")
+        assert result == {
+            "content-appearance-published": "full-width",
+            "content-appearance-draft": "fixed-width",
+        }
+
+    def test_get_content_properties_empty(self, pages_mixin):
+        """Empty results return empty dict."""
+        pages_mixin.confluence.get_page_properties.return_value = {"results": []}
+
+        result = pages_mixin.get_content_properties("123456789")
+
+        assert result == {}
+
+    def test_get_content_properties_single_key(self, pages_mixin):
+        """Single key returns only that property."""
+        pages_mixin.confluence.get_page_property.return_value = {
+            "key": "content-appearance-published",
+            "value": "full-width",
+            "version": {"number": 2},
+        }
+
+        result = pages_mixin.get_content_properties(
+            "123456789", key="content-appearance-published"
+        )
+
+        pages_mixin.confluence.get_page_property.assert_called_once_with(
+            "123456789", "content-appearance-published"
+        )
+        assert result == {"content-appearance-published": "full-width"}
+
+    def test_get_content_properties_api_error(self, pages_mixin):
+        """API errors propagate without wrapping."""
+        pages_mixin.confluence.get_page_properties.side_effect = Exception("API error")
+
+        with pytest.raises(Exception, match="API error"):
+            pages_mixin.get_content_properties("123456789")
