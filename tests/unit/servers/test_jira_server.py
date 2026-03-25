@@ -2751,9 +2751,7 @@ async def test_update_issue_with_attachments_comma_separated(
 
 
 @pytest.mark.anyio
-async def test_update_issue_with_attachments_json_array(
-    jira_client, mock_jira_fetcher
-):
+async def test_update_issue_with_attachments_json_array(jira_client, mock_jira_fetcher):
     """update_issue with attachments as JSON array string."""
     response = await jira_client.call_tool(
         "jira_update_issue",
