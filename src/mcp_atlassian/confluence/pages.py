@@ -335,6 +335,26 @@ class PagesMixin(ConfluenceClient):
             logger.debug(f"Error fetching page width for page {page_id}: {str(e)}")
             return None
 
+    def get_content_properties(
+        self, page_id: str, key: str | None = None
+    ) -> dict[str, Any]:
+        """Get content properties for a Confluence page.
+
+        Args:
+            page_id: The ID of the page.
+            key: Optional property key. If provided, returns only that property.
+                If omitted, returns all properties as a ``{key: value}`` dict.
+
+        Returns:
+            Dict mapping property key(s) to their values.
+        """
+        if key:
+            prop = self.confluence.get_page_property(page_id, key)
+            return {prop["key"]: prop["value"]}
+
+        properties = self.confluence.get_page_properties(page_id)
+        return {item["key"]: item["value"] for item in properties.get("results", [])}
+
     def _set_page_width(self, page_id: str, width: str | None) -> bool:
         """Set the page layout width.
 
