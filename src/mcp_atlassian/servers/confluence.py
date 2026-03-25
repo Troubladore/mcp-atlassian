@@ -179,6 +179,17 @@ async def get_page(
             default=True,
         ),
     ] = True,
+    include: Annotated[
+        str | None,
+        Field(
+            description=(
+                "(Optional) Comma-separated sections to inline in the response, "
+                "avoiding extra tool calls. Supported: "
+                "comments, labels, views"
+            ),
+            default=None,
+        ),
+    ] = None,
 ) -> str:
     """Get content of a specific Confluence page by its ID, or by its title and space key.
 
@@ -189,9 +200,11 @@ async def get_page(
         space_key: The key of the space. Must be used with 'title'.
         include_metadata: Whether to include page metadata.
         convert_to_markdown: Convert content to markdown (true) or keep raw HTML (false).
+        include: Comma-separated enrichments to inline (comments, labels, views).
 
     Returns:
-        JSON string representing the page content and/or metadata, or an error if not found or parameters are invalid.
+        JSON string representing the page content and/or metadata, or an error
+        if not found or parameters are invalid.
     """
     confluence_fetcher = await get_confluence_fetcher(ctx)
     page_object = None
@@ -237,10 +250,56 @@ async def get_page(
             ensure_ascii=False,
         )
 
+    result: dict
     if include_metadata:
         result = {"metadata": page_object.to_simplified_dict()}
     else:
         result = {"content": {"value": page_object.content}}
+
+    # Inline requested enrichments to avoid extra tool calls
+    if include:
+        sections = {s.strip().lower() for s in include.split(",")}
+        resolved_page_id = str(page_object.id)
+
+        if "comments" in sections:
+            try:
+                comments = confluence_fetcher.get_page_comments(
+                    resolved_page_id,
+                )
+                result["comments"] = [
+                    comment.to_simplified_dict() for comment in comments
+                ]
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to inline comments for page %s",
+                    resolved_page_id,
+                )
+                result["comments"] = []
+
+        if "labels" in sections:
+            try:
+                labels = confluence_fetcher.get_page_labels(resolved_page_id)
+                result["labels"] = [label.to_simplified_dict() for label in labels]
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to inline labels for page %s",
+                    resolved_page_id,
+                )
+                result["labels"] = []
+
+        if "views" in sections:
+            try:
+                views = confluence_fetcher.get_page_views(
+                    page_id=resolved_page_id, include_title=False
+                )
+                result["views"] = views.to_simplified_dict()
+            except Exception:  # noqa: BLE001
+                # Graceful degradation for Server/DC (analytics API unavailable)
+                logger.debug(
+                    "Views unavailable for page %s (expected on Server/DC)",
+                    resolved_page_id,
+                )
+                result["views"] = {}
 
     return json.dumps(result, indent=2, ensure_ascii=False)
 
@@ -740,6 +799,104 @@ async def update_page(
         page_data.pop("content", None)
     return json.dumps(
         {"message": "Page updated successfully", "page": page_data},
+        indent=2,
+        ensure_ascii=False,
+    )
+
+
+@confluence_mcp.tool(
+    tags={"confluence", "write", "toolset:confluence_pages"},
+    annotations={"title": "Update Page Section", "destructiveHint": True},
+)
+@check_write_access
+async def update_page_section(
+    ctx: Context,
+    page_id: Annotated[str, Field(description="The ID of the page to update")],
+    heading_text: Annotated[
+        str,
+        Field(
+            description=(
+                "Exact text of the heading that starts the section to replace. "
+                "Matching is case-sensitive. Use confluence_get_page with "
+                "convert_to_markdown=false to inspect exact heading text when unsure."
+            )
+        ),
+    ],
+    new_content: Annotated[
+        str,
+        Field(
+            description=(
+                "Replacement content for the section body. "
+                "Do NOT include the heading itself — only the body beneath it. "
+                "Format is controlled by content_format."
+            )
+        ),
+    ],
+    content_format: Annotated[
+        str,
+        Field(
+            description=(
+                "(Optional) Format of new_content. "
+                "Options: 'markdown' (default) or 'storage' (raw Confluence storage XML). "
+                "Use 'storage' to insert macros or elements that markdown cannot express."
+            ),
+            default="markdown",
+        ),
+    ] = "markdown",
+    is_minor_edit: Annotated[
+        bool, Field(description="Whether this is a minor edit", default=False)
+    ] = False,
+    version_comment: Annotated[
+        str | None,
+        Field(description="Optional comment for this version", default=None),
+    ] = None,
+) -> str:
+    """Update a single section of a Confluence page without affecting the rest.
+
+    Replaces only the content beneath a named heading, leaving all other
+    sections, macros, layouts, and Confluence-specific elements completely
+    intact. This avoids the data loss that occurs when a full page is
+    downloaded as Markdown, edited, and re-uploaded.
+
+    Args:
+        ctx: The FastMCP context.
+        page_id: The ID of the page to update.
+        heading_text: Exact heading text identifying the section to replace.
+        new_content: New body content for the section (heading not included).
+        content_format: Format of new_content ('markdown' or 'storage').
+        is_minor_edit: Whether to flag this as a minor edit.
+        version_comment: Optional version comment.
+
+    Returns:
+        JSON string representing the updated page metadata.
+
+    Raises:
+        ValueError: If Confluence client is not configured, heading is not
+            found, or content_format is invalid.
+    """
+    confluence_fetcher = await get_confluence_fetcher(ctx)
+
+    if content_format not in ("markdown", "storage"):
+        raise ValueError(
+            f"Invalid content_format '{content_format}'. Must be 'markdown' or 'storage'."
+        )
+
+    updated_page = confluence_fetcher.update_page_section(
+        page_id=page_id,
+        heading_text=heading_text,
+        new_content=new_content,
+        content_format=content_format,
+        is_minor_edit=is_minor_edit,
+        version_comment=version_comment or "",
+    )
+
+    page_data = updated_page.to_simplified_dict()
+    page_data.pop("content", None)
+    return json.dumps(
+        {
+            "message": f"Section '{heading_text}' updated successfully",
+            "page": page_data,
+        },
         indent=2,
         ensure_ascii=False,
     )
