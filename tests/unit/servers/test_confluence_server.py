@@ -1183,3 +1183,68 @@ async def test_get_user_details_server_username(client, mock_confluence_fetcher)
     result_data = json.loads(response.content[0].text)
     assert result_data["username"] == "firstlast"
     assert result_data["displayName"] == "First Last"
+
+
+@pytest.mark.anyio
+async def test_set_content_property_valid_json(client, mock_confluence_fetcher):
+    """Test set_content_property with valid JSON string value."""
+    mock_confluence_fetcher.set_content_property.return_value = {
+        "content-appearance-published": "full-width"
+    }
+
+    response = await client.call_tool(
+        "confluence_set_content_property",
+        {
+            "page_id": "123456",
+            "key": "content-appearance-published",
+            "value": '"full-width"',
+        },
+    )
+
+    mock_confluence_fetcher.set_content_property.assert_called_once_with(
+        "123456", "content-appearance-published", "full-width"
+    )
+
+    result_data = json.loads(response.content[0].text)
+    assert result_data["content-appearance-published"] == "full-width"
+
+
+@pytest.mark.anyio
+async def test_set_content_property_json_object(client, mock_confluence_fetcher):
+    """Test set_content_property with JSON object value."""
+    mock_confluence_fetcher.set_content_property.return_value = {
+        "editor": {"version": 2}
+    }
+
+    response = await client.call_tool(
+        "confluence_set_content_property",
+        {
+            "page_id": "123456",
+            "key": "editor",
+            "value": '{"version": 2}',
+        },
+    )
+
+    mock_confluence_fetcher.set_content_property.assert_called_once_with(
+        "123456", "editor", {"version": 2}
+    )
+
+    result_data = json.loads(response.content[0].text)
+    assert result_data["editor"] == {"version": 2}
+
+
+@pytest.mark.anyio
+async def test_set_content_property_invalid_json(client, mock_confluence_fetcher):
+    """Test set_content_property rejects invalid JSON value."""
+    response = await client.call_tool(
+        "confluence_set_content_property",
+        {
+            "page_id": "123456",
+            "key": "some-key",
+            "value": "not valid json",
+        },
+    )
+
+    result_text = response.content[0].text
+    assert "valid JSON" in result_text or "error" in result_text.lower()
+    mock_confluence_fetcher.set_content_property.assert_not_called()
