@@ -362,6 +362,18 @@ async def get_issue(
             default=None,
         ),
     ] = None,
+    use_display_names: Annotated[
+        bool,
+        Field(
+            description=(
+                "When true, custom field keys in the output use human-readable "
+                "display names (e.g. 'Story Points') instead of opaque IDs "
+                "(e.g. 'customfield_10243'). The 'names' expansion is added "
+                "automatically. Standard fields are unaffected."
+            ),
+            default=False,
+        ),
+    ] = False,
 ) -> str:
     """Get details of a specific Jira issue.
 
@@ -379,6 +391,7 @@ async def get_issue(
         properties: Issue properties to return.
         update_history: Whether to update issue view history.
         include: Comma-separated enrichment sections to inline.
+        use_display_names: Opt into human-readable custom field keys.
 
     Returns:
         JSON string representing the Jira issue object.
@@ -408,6 +421,10 @@ async def get_issue(
         else:
             expand = ",".join(expand_additions)
 
+    # Automatically include 'names' expansion when display names are requested
+    if use_display_names and (not expand or "names" not in expand):
+        expand = f"{expand},names" if expand else "names"
+
     # Fetch the issue (with augmented expand)
     issue = jira.get_issue(
         issue_key=issue_key,
@@ -417,7 +434,10 @@ async def get_issue(
         properties=properties.split(",") if properties else None,
         update_history=update_history,
     )
-    result = issue.to_simplified_dict()
+    if use_display_names:
+        result = issue.to_display_name_dict()
+    else:
+        result = issue.to_simplified_dict()
 
     # Enrichments that require separate API calls
     if "remote_links" in include_sections:
@@ -431,7 +451,6 @@ async def get_issue(
             result["watchers"] = jira.get_issue_watchers(issue_key)
         except Exception:  # noqa: BLE001
             result["watchers"] = {}
-
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
@@ -503,6 +522,18 @@ async def search(
             default=None,
         ),
     ] = None,
+    use_display_names: Annotated[
+        bool,
+        Field(
+            description=(
+                "When true, custom field keys in the output use human-readable "
+                "display names (e.g. 'Story Points') instead of opaque IDs "
+                "(e.g. 'customfield_10243'). The 'names' expansion is added "
+                "automatically. Standard fields are unaffected."
+            ),
+            default=False,
+        ),
+    ] = False,
 ) -> str:
     """Search Jira issues using JQL (Jira Query Language).
 
@@ -515,6 +546,7 @@ async def search(
         projects_filter: Comma-separated list of project keys to filter by.
         expand: Optional fields to expand.
         page_token: Pagination token from a previous search result (Cloud only).
+        use_display_names: Opt into human-readable custom field keys.
 
     Returns:
         JSON string representing the search results including pagination info.
@@ -523,6 +555,10 @@ async def search(
     fields_list: str | list[str] | None = fields
     if fields and fields != "*all":
         fields_list = [f.strip() for f in fields.split(",")]
+
+    # Automatically include 'names' expansion when display names are requested
+    if use_display_names and (not expand or "names" not in expand):
+        expand = f"{expand},names" if expand else "names"
 
     search_result = jira.search_issues(
         jql=jql,
@@ -533,7 +569,10 @@ async def search(
         projects_filter=projects_filter,
         page_token=page_token,
     )
-    result = search_result.to_simplified_dict()
+    if use_display_names:
+        result = search_result.to_display_name_dict()
+    else:
+        result = search_result.to_simplified_dict()
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
