@@ -870,6 +870,27 @@ async def test_get_page_include_views_graceful_degradation(
 
 
 @pytest.mark.anyio
+async def test_get_page_include_properties(client, mock_confluence_fetcher):
+    """Test get_page with include='properties' inlines content properties."""
+    mock_confluence_fetcher.get_content_properties.return_value = {
+        "content-appearance-published": "full-width",
+        "editor": {"version": 2},
+    }
+
+    response = await client.call_tool(
+        "confluence_get_page", {"page_id": "123456", "include": "properties"}
+    )
+
+    mock_confluence_fetcher.get_content_properties.assert_called_once_with("123456")
+
+    result_data = json.loads(response.content[0].text)
+    assert "metadata" in result_data
+    assert "properties" in result_data
+    assert result_data["properties"]["content-appearance-published"] == "full-width"
+    assert result_data["properties"]["editor"] == {"version": 2}
+
+
+@pytest.mark.anyio
 async def test_get_page_include_none_no_enrichments(client, mock_confluence_fetcher):
     """Test get_page without include param does not call enrichment methods."""
     response = await client.call_tool("confluence_get_page", {"page_id": "123456"})
