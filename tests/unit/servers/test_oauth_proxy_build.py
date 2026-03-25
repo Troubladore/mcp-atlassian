@@ -310,3 +310,35 @@ async def test_register_client_hardens_grant_types_and_scopes(monkeypatch):
     assert stored is not None
     assert stored.grant_types == ["authorization_code"]
     assert stored.scope == "read:jira-work"
+
+
+def test_build_auth_provider_none_when_nonsecret_config_missing(monkeypatch):
+    """Provider returns None when non-secret config vars are missing."""
+    monkeypatch.setenv("ATLASSIAN_OAUTH_PROXY_ENABLE", "true")
+    monkeypatch.setenv("ATLASSIAN_OAUTH_CLIENT_SECRET", "secret")
+    monkeypatch.delenv("JIRA_URL", raising=False)
+    monkeypatch.delenv("CONFLUENCE_URL", raising=False)
+    monkeypatch.delenv("ATLASSIAN_OAUTH_INSTANCE_URL", raising=False)
+    monkeypatch.delenv("ATLASSIAN_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("JIRA_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("CONFLUENCE_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("ATLASSIAN_OAUTH_REDIRECT_URI", raising=False)
+
+    provider = _build_auth_provider()
+
+    assert provider is None
+
+
+def test_build_auth_provider_none_when_secret_missing(monkeypatch):
+    """Provider returns None when client secret is missing."""
+    monkeypatch.setenv("ATLASSIAN_OAUTH_PROXY_ENABLE", "true")
+    monkeypatch.setenv("JIRA_URL", "https://jira.example.com")
+    monkeypatch.setenv("ATLASSIAN_OAUTH_CLIENT_ID", "client-id")
+    monkeypatch.setenv("ATLASSIAN_OAUTH_REDIRECT_URI", "http://localhost:3000/callback")
+    monkeypatch.delenv("ATLASSIAN_OAUTH_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("JIRA_OAUTH_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("CONFLUENCE_OAUTH_CLIENT_SECRET", raising=False)
+
+    provider = _build_auth_provider()
+
+    assert provider is None

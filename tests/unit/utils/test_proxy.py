@@ -198,7 +198,8 @@ class TestProxyConfigurationEnhanced(BaseAuthTest):
 
         # Verify NO_PROXY is set in environment
         assert os.environ["NO_PROXY"] == "*.internal.com,localhost,127.0.0.1"
-        assert "internal.com" in config.no_proxy
+        no_proxy_tokens = [t.strip() for t in config.no_proxy.split(",") if t.strip()]
+        assert "*.internal.com" in no_proxy_tokens
 
     def test_proxy_error_handling(self, monkeypatch):
         """Test proper error handling when proxy connection fails."""
