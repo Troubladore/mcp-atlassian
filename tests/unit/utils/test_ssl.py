@@ -320,3 +320,66 @@ def test_configure_ssl_verification_enabled_with_no_proxy_mounts_adapter(monkeyp
     assert not isinstance(
         session.get_adapter("https://test.example.com"), SSLIgnoreAdapter
     )
+
+
+# ---------------------------------------------------------------------------
+# Legacy TLS support (SSL_LEGACY_TLS env var)
+# ---------------------------------------------------------------------------
+
+
+def test_ssl_ignore_adapter_default_no_legacy_tls():
+    """Without SSL_LEGACY_TLS, init_poolmanager uses create_default_context."""
+    adapter = SSLIgnoreAdapter()
+    mock_pool_manager = MagicMock()
+
+    with (
+        patch("ssl.create_default_context") as mock_create_context,
+        patch("mcp_atlassian.utils.ssl.PoolManager", return_value=mock_pool_manager),
+    ):
+        mock_context = MagicMock()
+        mock_create_context.return_value = mock_context
+
+        adapter.init_poolmanager(5, 10)
+
+        mock_create_context.assert_called_once()
+        mock_context.set_ciphers.assert_not_called()
+
+
+def test_ssl_ignore_adapter_legacy_tls_enabled(monkeypatch):
+    """With SSL_LEGACY_TLS=true, init_poolmanager enables legacy TLS/ciphers."""
+    monkeypatch.setenv("SSL_LEGACY_TLS", "true")
+    adapter = SSLIgnoreAdapter()
+    mock_pool_manager = MagicMock()
+
+    with (
+        patch("ssl.SSLContext") as mock_ssl_context,
+        patch("mcp_atlassian.utils.ssl.PoolManager", return_value=mock_pool_manager),
+    ):
+        mock_context = MagicMock()
+        mock_ssl_context.return_value = mock_context
+
+        adapter.init_poolmanager(5, 10)
+
+        mock_ssl_context.assert_called_once_with(ssl.PROTOCOL_TLS_CLIENT)
+        assert mock_context.check_hostname is False
+        assert mock_context.verify_mode == ssl.CERT_NONE
+        mock_context.set_ciphers.assert_called_once_with("DEFAULT@SECLEVEL=0")
+
+
+def test_ssl_ignore_adapter_legacy_tls_false_uses_default(monkeypatch):
+    """SSL_LEGACY_TLS=false still uses create_default_context."""
+    monkeypatch.setenv("SSL_LEGACY_TLS", "false")
+    adapter = SSLIgnoreAdapter()
+    mock_pool_manager = MagicMock()
+
+    with (
+        patch("ssl.create_default_context") as mock_create_context,
+        patch("mcp_atlassian.utils.ssl.PoolManager", return_value=mock_pool_manager),
+    ):
+        mock_context = MagicMock()
+        mock_create_context.return_value = mock_context
+
+        adapter.init_poolmanager(5, 10)
+
+        mock_create_context.assert_called_once()
+        mock_context.set_ciphers.assert_not_called()

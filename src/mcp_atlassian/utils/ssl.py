@@ -101,7 +101,20 @@ class SSLIgnoreAdapter(NoProxyAdapter):
             pool_kwargs: Additional arguments for the pool manager
         """
         # Configure SSL context to disable verification completely
-        context = ssl.create_default_context()
+        legacy_tls = os.environ.get("SSL_LEGACY_TLS", "").lower() == "true"
+        if legacy_tls:
+            # Legacy mode for corporate servers that only support TLS 1.0/1.1
+            # and older cipher suites. Must be explicitly opted into.
+            logger.warning(
+                "SSL_LEGACY_TLS is enabled — using legacy TLS versions and cipher "
+                "suites. This weakens transport security and should only be used "
+                "when connecting to servers that do not support modern TLS."
+            )
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            context.minimum_version = ssl.TLSVersion.MINIMUM_SUPPORTED
+            context.set_ciphers("DEFAULT@SECLEVEL=0")
+        else:
+            context = ssl.create_default_context()
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
 
