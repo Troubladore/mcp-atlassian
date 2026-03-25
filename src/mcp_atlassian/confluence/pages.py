@@ -335,6 +335,61 @@ class PagesMixin(ConfluenceClient):
             logger.debug(f"Error fetching page width for page {page_id}: {str(e)}")
             return None
 
+    def get_content_properties(
+        self, page_id: str, key: str | None = None
+    ) -> dict[str, Any]:
+        """Get content properties for a Confluence page.
+
+        Args:
+            page_id: The ID of the page.
+            key: Optional property key. If provided, returns only that property.
+                If omitted, returns all properties as a ``{key: value}`` dict.
+
+        Returns:
+            Dict mapping property key(s) to their values.
+        """
+        if key:
+            prop = self.confluence.get_page_property(page_id, key)
+            return {prop["key"]: prop["value"]}
+
+        properties = self.confluence.get_page_properties(page_id)
+        return {item["key"]: item["value"] for item in properties.get("results", [])}
+
+    def set_content_property(
+        self, page_id: str, key: str, value: Any
+    ) -> dict[str, Any]:
+        """Create or update a content property on a Confluence page.
+
+        Handles version increment automatically. Reads the current version
+        before writing, so callers do not need to manage version numbers.
+
+        Args:
+            page_id: The ID of the page.
+            key: Property key (e.g. ``content-appearance-published``).
+            value: Property value. Strings, dicts, and lists are all supported.
+
+        Returns:
+            Dict with ``{key: value}`` of the created or updated property.
+        """
+        property_data: dict[str, Any] = {"key": key, "value": value}
+
+        # Check if property exists (need version for update)
+        existing = None
+        try:
+            existing = self.confluence.get_page_property(page_id, key)
+        except Exception:  # noqa: BLE001, S110
+            # Property doesn't exist — will create it
+            pass
+
+        if existing and isinstance(existing, dict):
+            existing_version = existing.get("version", {}).get("number") or 0
+            property_data["version"] = {"number": existing_version + 1}
+            self.confluence.update_page_property(page_id, property_data)
+        else:
+            self.confluence.set_page_property(page_id, property_data)
+
+        return {key: value}
+
     def _set_page_width(self, page_id: str, width: str | None) -> bool:
         """Set the page layout width.
 
