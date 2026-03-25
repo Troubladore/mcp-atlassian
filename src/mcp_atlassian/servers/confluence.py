@@ -185,7 +185,7 @@ async def get_page(
             description=(
                 "(Optional) Comma-separated sections to inline in the response, "
                 "avoiding extra tool calls. Supported: "
-                "comments, labels, views"
+                "comments, labels, views, properties"
             ),
             default=None,
         ),
@@ -200,7 +200,7 @@ async def get_page(
         space_key: The key of the space. Must be used with 'title'.
         include_metadata: Whether to include page metadata.
         convert_to_markdown: Convert content to markdown (true) or keep raw HTML (false).
-        include: Comma-separated enrichments to inline (comments, labels, views).
+        include: Comma-separated enrichments to inline (comments, labels, views, properties).
 
     Returns:
         JSON string representing the page content and/or metadata, or an error
@@ -300,6 +300,17 @@ async def get_page(
                     resolved_page_id,
                 )
                 result["views"] = {}
+
+        if "properties" in sections:
+            try:
+                props = confluence_fetcher.get_content_properties(resolved_page_id)
+                result["properties"] = props
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to inline properties for page %s",
+                    resolved_page_id,
+                )
+                result["properties"] = {}
 
     return json.dumps(result, indent=2, ensure_ascii=False)
 
