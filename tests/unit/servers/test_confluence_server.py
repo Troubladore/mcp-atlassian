@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastmcp import Client, FastMCP
 from fastmcp.client import FastMCPTransport
+from fastmcp.exceptions import ToolError
 from starlette.requests import Request
 
 from src.mcp_atlassian.confluence import ConfluenceFetcher
@@ -222,6 +223,7 @@ def test_confluence_mcp(mock_confluence_fetcher, mock_base_confluence_config):
         get_user_details,
         search,
         search_user,
+        set_content_property,
         update_page,
         upload_attachment,
         upload_attachments,
@@ -264,6 +266,7 @@ def test_confluence_mcp(mock_confluence_fetcher, mock_base_confluence_config):
     confluence_sub_mcp.add_tool(download_content_attachments)
     confluence_sub_mcp.add_tool(delete_attachment)
     confluence_sub_mcp.add_tool(get_page_images)
+    confluence_sub_mcp.add_tool(set_content_property)
 
     test_mcp.mount(confluence_sub_mcp, prefix="confluence")
 
@@ -1236,15 +1239,15 @@ async def test_set_content_property_json_object(client, mock_confluence_fetcher)
 @pytest.mark.anyio
 async def test_set_content_property_invalid_json(client, mock_confluence_fetcher):
     """Test set_content_property rejects invalid JSON value."""
-    response = await client.call_tool(
-        "confluence_set_content_property",
-        {
-            "page_id": "123456",
-            "key": "some-key",
-            "value": "not valid json",
-        },
-    )
+    with pytest.raises(ToolError) as excinfo:
+        await client.call_tool(
+            "confluence_set_content_property",
+            {
+                "page_id": "123456",
+                "key": "some-key",
+                "value": "not valid json",
+            },
+        )
 
-    result_text = response.content[0].text
-    assert "valid JSON" in result_text or "error" in result_text.lower()
+    assert "valid JSON" in str(excinfo.value)
     mock_confluence_fetcher.set_content_property.assert_not_called()
