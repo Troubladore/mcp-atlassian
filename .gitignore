@@ -78,5 +78,16 @@ playground/
 .claude/worktrees/
 .claude/settings.local.json
 
+# Security scan results (large JSON files, regenerate as needed)
+security/scans/
+
+# MCPB extension build artifacts
+# Keep only the canonical team-mcp-atlassian.mcpb, ignore versioned builds
+docs/mcpb-extension/team-mcp-atlassian-*.mcpb
+!docs/mcpb-extension/team-mcp-atlassian.mcpb
+
 # Dev docs (local task documents)
 dev/
+
+# Worktrees
+.worktrees/

@@ -4,7 +4,7 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from fastmcp import Context, FastMCP
 from mcp.types import BlobResourceContents, EmbeddedResource, ImageContent, TextContent
@@ -23,13 +23,123 @@ from mcp_atlassian.utils.media import (
 )
 from mcp_atlassian.utils.urls import resolve_relative_url
 
+if TYPE_CHECKING:
+    from mcp_atlassian.confluence import ConfluenceFetcher
+
 logger = logging.getLogger(__name__)
+
+
+def _try_correct_space_key(
+    space_key: str,
+    fetcher: "ConfluenceFetcher",
+) -> tuple[str, str | None]:
+    """Attempt to correct an invalid space key.
+
+    Args:
+        space_key: The space key to validate/correct.
+        fetcher: A ConfluenceFetcher instance.
+
+    Returns:
+        Tuple of (space_key, correction_note). If the space key was corrected,
+        correction_note describes the change. If no correction was possible,
+        returns the original space_key and None.
+    """
+    from mcp_atlassian.utils.suggestions import suggest_spaces
+
+    suggestions = suggest_spaces(space_key, fetcher)
+    if len(suggestions) == 1 and suggestions[0].lower() == space_key.lower():
+        corrected = suggestions[0]
+        return corrected, f"Corrected space_key '{space_key}' to '{corrected}'"
+    return space_key, None
+
+
+def _space_key_error_response(
+    space_key: str,
+    fetcher: "ConfluenceFetcher",
+    base_error: str,
+) -> str:
+    """Build an error response with space key suggestions.
+
+    Args:
+        space_key: The invalid space key.
+        fetcher: A ConfluenceFetcher instance.
+        base_error: The base error message.
+
+    Returns:
+        JSON string with error, suggestions, and/or hints.
+    """
+    from mcp_atlassian.utils.suggestions import format_suggestions, suggest_spaces
+
+    suggestions = suggest_spaces(space_key, fetcher)
+    if suggestions:
+        return json.dumps(
+            format_suggestions(
+                base_error,
+                suggestions,
+                hint="Space keys are case-sensitive uppercase. "
+                "Try one of the suggestions.",
+            ),
+            indent=2,
+            ensure_ascii=False,
+        )
+    return json.dumps(
+        {
+            "error": base_error,
+            "hint": "Use the list_spaces tool to discover available space keys.",
+        },
+        indent=2,
+        ensure_ascii=False,
+    )
 
 
 confluence_mcp = FastMCP(
     name="Confluence MCP Service",
     instructions="Provides tools for interacting with Atlassian Confluence.",
 )
+
+
+def parse_page_id_from_url(page_id_or_url: str | int | None) -> str | None:
+    """Extract page ID from URL or return as-is if already an ID.
+
+    Handles formats like:
+    - https://site.atlassian.net/wiki/spaces/TEAM/pages/123456/Title
+    - https://site.atlassian.net/wiki/pages/viewpage.action?pageId=123456
+    - 123456 (already an ID)
+
+    Args:
+        page_id_or_url: Page ID, URL, or None
+
+    Returns:
+        Extracted page ID or None if invalid
+    """
+    if not page_id_or_url:
+        return None
+
+    page_str = str(page_id_or_url)
+
+    # If it's not a URL, return as-is
+    if "http://" not in page_str and "https://" not in page_str:
+        return page_str
+
+    # Try modern URL format: /pages/123456/Title
+    import re
+
+    match = re.search(r"/pages/(\d+)", page_str)
+    if match:
+        extracted = match.group(1)
+        logger.info(f"Auto-extracted page_id={extracted} from URL")
+        return extracted
+
+    # Try legacy format: ?pageId=123456
+    match = re.search(r"[?&]pageId=(\d+)", page_str)
+    if match:
+        extracted = match.group(1)
+        logger.info(f"Auto-extracted page_id={extracted} from URL")
+        return extracted
+
+    # Couldn't parse - return as-is and let API handle it
+    logger.warning(f"Could not extract page_id from URL: {page_str}")
+    return page_str
 
 
 @confluence_mcp.tool(
@@ -96,6 +206,21 @@ async def search(
         JSON string representing a list of simplified Confluence page objects.
     """
     confluence_fetcher = await get_confluence_fetcher(ctx)
+
+    # Attempt to correct each space key in spaces_filter
+    correction_notes: list[str] = []
+    if spaces_filter:
+        corrected_keys: list[str] = []
+        for key in spaces_filter.split(","):
+            key = key.strip()
+            if not key:
+                continue
+            corrected, note = _try_correct_space_key(key, confluence_fetcher)
+            corrected_keys.append(corrected)
+            if note:
+                correction_notes.append(note)
+        spaces_filter = ",".join(corrected_keys)
+
     # Check if the query is a simple search term or already a CQL query
     if query and not any(
         x in query for x in ["=", "~", ">", "<", " AND ", " OR ", "currentUser()"]
@@ -121,6 +246,12 @@ async def search(
             query, limit=limit, spaces_filter=spaces_filter
         )
     search_results = [page.to_simplified_dict() for page in pages]
+    if correction_notes:
+        return json.dumps(
+            {"results": search_results, "notes": correction_notes},
+            indent=2,
+            ensure_ascii=False,
+        )
     return json.dumps(search_results, indent=2, ensure_ascii=False)
 
 
@@ -134,9 +265,9 @@ async def get_page(
         str | None,
         Field(
             description=(
-                "Confluence page ID (numeric ID, can be found in the page URL). "
-                "For example, in the URL 'https://example.atlassian.net/wiki/spaces/TEAM/pages/123456789/Page+Title', "
-                "the page ID is '123456789'. "
+                "Confluence page ID or full page URL. "
+                "For example, in 'https://example.atlassian.net/wiki/spaces/TEAM/pages/123456789/Page+Title', "
+                "the page ID is '123456789'. You can pass the full URL or just the numeric ID. "
                 "Provide this OR both 'title' and 'space_key'. If page_id is provided, title and space_key will be ignored."
             ),
             default=None,
@@ -184,7 +315,7 @@ async def get_page(
 
     Args:
         ctx: The FastMCP context.
-        page_id: Confluence page ID. If provided, 'title' and 'space_key' are ignored.
+        page_id: Confluence page ID or URL. If provided, 'title' and 'space_key' are ignored.
         title: The exact title of the page. Must be used with 'space_key'.
         space_key: The key of the space. Must be used with 'title'.
         include_metadata: Whether to include page metadata.
@@ -195,6 +326,9 @@ async def get_page(
     """
     confluence_fetcher = await get_confluence_fetcher(ctx)
     page_object = None
+
+    # Auto-parse URLs to extract page_id
+    page_id = parse_page_id_from_url(page_id)
 
     if page_id:
         if title or space_key:
@@ -218,12 +352,74 @@ async def get_page(
             space_key, title, convert_to_markdown=convert_to_markdown
         )
         if not page_object:
-            return json.dumps(
-                {
-                    "error": f"Page with title '{title}' not found in space '{space_key}'."
-                },
-                indent=2,
-                ensure_ascii=False,
+            # Phase 2: Try title recovery (search for similar titles)
+            from mcp_atlassian.utils.suggestions import (
+                format_suggestions,
+                fuzzy_match,
+            )
+
+            try:
+                search_results = confluence_fetcher.search(
+                    f'title ~ "{title}" AND space = "{space_key}"',
+                    limit=5,
+                )
+                similar_titles = [p.title for p in search_results if p.title]
+            except Exception:
+                similar_titles = []
+
+            if similar_titles:
+                matches = fuzzy_match(title, similar_titles)
+                if len(matches) == 1:
+                    # Auto-correct: fetch the matched page
+                    page_object = confluence_fetcher.get_page_by_title(
+                        space_key,
+                        matches[0],
+                        convert_to_markdown=convert_to_markdown,
+                    )
+                    if page_object:
+                        if include_metadata:
+                            result: dict[str, object] = {
+                                "metadata": page_object.to_simplified_dict()
+                            }
+                        else:
+                            result = {"content": {"value": page_object.content}}
+                        result["note"] = f"Corrected title '{title}' to '{matches[0]}'"
+                        return json.dumps(result, indent=2, ensure_ascii=False)
+
+                if matches:
+                    return json.dumps(
+                        format_suggestions(
+                            f"Page with title '{title}' not found "
+                            f"in space '{space_key}'.",
+                            matches,
+                            hint="Similar page titles found. "
+                            "Try one of the suggestions.",
+                        ),
+                        indent=2,
+                        ensure_ascii=False,
+                    )
+
+            # Phase 1: Attempt space key recovery
+            corrected_key, correction_note = _try_correct_space_key(
+                space_key, confluence_fetcher
+            )
+            if correction_note:
+                page_object = confluence_fetcher.get_page_by_title(
+                    corrected_key, title, convert_to_markdown=convert_to_markdown
+                )
+                if page_object:
+                    if include_metadata:
+                        result = {"metadata": page_object.to_simplified_dict()}
+                    else:
+                        result = {"content": {"value": page_object.content}}
+                    result["note"] = correction_note
+                    return json.dumps(result, indent=2, ensure_ascii=False)
+
+            # Could not auto-correct — return error with suggestions
+            return _space_key_error_response(
+                space_key,
+                confluence_fetcher,
+                f"Page with title '{title}' not found in space '{space_key}'.",
             )
     else:
         raise ValueError(
@@ -289,12 +485,12 @@ async def get_page_children(
     ] = True,
     start: Annotated[
         int,
-        Field(description="Starting index for pagination (0-based)", default=0, ge=0),
+        Field(description="Starting index for pagination", default=0, ge=0),
     ] = 0,
     include_folders: Annotated[
         bool,
         Field(
-            description="Whether to include child folders in addition to child pages",
+            description="Include child folders",
             default=True,
         ),
     ] = True,
@@ -384,17 +580,188 @@ async def get_space_page_tree(
         Root pages have parent_id: null and depth: 0.
     """
     confluence_fetcher = await get_confluence_fetcher(ctx)
-    tree_data = confluence_fetcher.get_space_page_tree(space_key=space_key, limit=limit)
-
-    result: dict[str, object] = dict(tree_data)
-
-    # has_more is computed by the fetcher from the API's _links.next signal
-    if tree_data.get("has_more"):
-        result["hint"] = (
-            f"Results truncated at {limit} pages. Increase limit to see more."
+    correction_note: str | None = None
+    try:
+        tree_data = confluence_fetcher.get_space_page_tree(
+            space_key=space_key, limit=limit
         )
+    except Exception:
+        # Attempt space key recovery before giving up
+        corrected_key, correction_note = _try_correct_space_key(
+            space_key, confluence_fetcher
+        )
+        if correction_note:
+            try:
+                tree_data = confluence_fetcher.get_space_page_tree(
+                    space_key=corrected_key, limit=limit
+                )
+            except Exception as retry_exc:
+                return _space_key_error_response(
+                    space_key,
+                    confluence_fetcher,
+                    f"Failed to get page tree for space '{space_key}': {retry_exc}",
+                )
+        else:
+            return _space_key_error_response(
+                space_key,
+                confluence_fetcher,
+                f"Space '{space_key}' not found.",
+            )
 
+    result: dict[str, object] = (
+        tree_data if isinstance(tree_data, dict) else {"data": tree_data}
+    )
+
+    # Add pagination metadata
+    total_pages = tree_data.get("total_pages", 0) if isinstance(tree_data, dict) else 0
+    if total_pages >= limit:
+        result["has_more"] = True
+        result["next_start"] = limit
+        result["hint"] = (
+            f"Results may be truncated at {limit}. "
+            "Increase limit or use pagination to see more."
+        )
+    else:
+        result["has_more"] = False
+
+    if correction_note:
+        result["note"] = correction_note
     return json.dumps(result, indent=2, ensure_ascii=False)
+
+
+@confluence_mcp.tool(
+    tags={"confluence", "read", "toolset:confluence_pages"},
+    annotations={"title": "Get Page Ancestors", "readOnlyHint": True},
+)
+async def get_page_ancestors(
+    ctx: Context,
+    page_id: Annotated[
+        str,
+        Field(description="Page ID or URL"),
+    ],
+) -> str:
+    """Get ancestor pages (breadcrumb trail) for a specific Confluence page.
+
+    Returns all parent pages from the immediate parent up to the space root,
+    allowing you to understand the page's position in the hierarchy.
+
+    Args:
+        ctx: The FastMCP context.
+        page_id: Confluence page ID.
+
+    Returns:
+        JSON string representing a list of ancestor pages (immediate parent first, root last).
+    """
+    confluence_fetcher = await get_confluence_fetcher(ctx)
+
+    # Auto-parse URLs to extract page_id
+    page_id = parse_page_id_from_url(page_id)
+
+    ancestors = confluence_fetcher.get_page_ancestors(page_id)
+    formatted_ancestors = [ancestor.to_simplified_dict() for ancestor in ancestors]
+    return json.dumps(formatted_ancestors, indent=2, ensure_ascii=False)
+
+
+@confluence_mcp.tool(
+    tags={"confluence", "read", "toolset:confluence_pages"},
+    annotations={"title": "List Spaces", "readOnlyHint": True},
+)
+async def list_spaces(
+    ctx: Context,
+    limit: Annotated[
+        int,
+        Field(
+            description="Maximum number of spaces to return (default: 25)",
+            default=25,
+            ge=1,
+            le=100,
+        ),
+    ] = 25,
+    start: Annotated[
+        int,
+        Field(
+            description="Pagination start",
+            default=0,
+            ge=0,
+        ),
+    ] = 0,
+) -> str:
+    """List available Confluence spaces with their keys and names.
+
+    Use this to discover what spaces exist before exploring their content
+    or page hierarchies.
+
+    Args:
+        ctx: The FastMCP context.
+        limit: Maximum number of spaces to return.
+        start: Starting index for pagination.
+
+    Returns:
+        JSON string representing a list of spaces with keys and metadata.
+    """
+    confluence_fetcher = await get_confluence_fetcher(ctx)
+    spaces_response = confluence_fetcher.get_spaces(start=start, limit=limit)
+    return json.dumps(spaces_response, indent=2, ensure_ascii=False)
+
+
+@confluence_mcp.tool(
+    tags={"confluence", "write", "toolset:confluence_pages"},
+    annotations={"title": "Move Page Position", "readOnlyHint": False},
+)
+@check_write_access
+async def move_page_position(
+    ctx: Context,
+    page_id: Annotated[
+        str,
+        Field(description="Page ID to move"),
+    ],
+    position: Annotated[
+        str,
+        Field(description="Position: before/after/append"),
+    ],
+    target_id: Annotated[
+        str,
+        Field(description="Target page ID"),
+    ],
+) -> str:
+    """Move a Confluence page to a specific position relative to another page.
+
+    This tool allows precise control over page ordering in the page tree,
+    enabling you to place pages before/after siblings or as children.
+
+    WARNING: Using 'before' or 'after' when target_id is a top-level page
+    will move the page to the space root, which may be hard to find in the UI.
+
+    Args:
+        ctx: The FastMCP context.
+        page_id: ID of the page to move.
+        position: Position relative to target ('before', 'after', or 'append').
+        target_id: ID of the target page for positioning.
+
+    Returns:
+        JSON string indicating success or failure.
+    """
+    confluence_fetcher = await get_confluence_fetcher(ctx)
+    try:
+        result = confluence_fetcher.move_page_position(
+            page_id=page_id,
+            position=position,
+            target_id=target_id,
+        )
+        return json.dumps(
+            {
+                "success": result,
+                "message": f"Successfully moved page {page_id} to position '{position}' relative to {target_id}",
+            },
+            indent=2,
+        )
+    except ValueError as e:
+        return json.dumps({"success": False, "error": str(e)}, indent=2)
+    except Exception as e:
+        logger.error(f"Error moving page {page_id}: {e}", exc_info=True)
+        return json.dumps(
+            {"success": False, "error": f"Failed to move page: {str(e)}"}, indent=2
+        )
 
 
 @confluence_mcp.tool(
@@ -567,7 +934,14 @@ async def create_page(
     emoji: Annotated[
         str | None,
         Field(
-            description="(Optional) Page title emoji (icon shown in navigation). Can be any emoji character like '📝', '🚀', '📚'. Set to null/None to remove.",
+            description="(Optional) Page title emoji (icon shown in navigation). Can be any emoji character like '📝', '🚀', '📚'.",
+            default=None,
+        ),
+    ] = None,
+    page_width: Annotated[
+        str | None,
+        Field(
+            description="Page width: 'default'=Narrow (standard), 'full-width'=Wide, 'max'=Max. Omit to use Confluence default.",
             default=None,
         ),
     ] = None,
@@ -584,6 +958,7 @@ async def create_page(
         enable_heading_anchors: Whether to enable heading anchors (markdown only).
         include_content: Whether to include page content in the response.
         emoji: Optional page title emoji (icon shown in navigation).
+        page_width: Optional page layout ('full-width', 'max', or 'default').
 
     Returns:
         JSON string representing the created page object.
@@ -607,26 +982,43 @@ async def create_page(
         is_markdown = False
         content_representation = content_format  # Pass 'wiki' or 'storage' directly
 
-    page = confluence_fetcher.create_page(
-        space_key=space_key,
-        title=title,
-        body=content,
-        parent_id=parent_id,
-        is_markdown=is_markdown,
-        enable_heading_anchors=enable_heading_anchors
-        if content_format == "markdown"
-        else False,
-        content_representation=content_representation,
-        emoji=emoji,
+    # Attempt space key correction before calling the API
+    corrected_key, correction_note = _try_correct_space_key(
+        space_key, confluence_fetcher
     )
-    result = page.to_simplified_dict()
+    space_key = corrected_key
+
+    try:
+        page = confluence_fetcher.create_page(
+            space_key=space_key,
+            title=title,
+            body=content,
+            parent_id=parent_id,
+            is_markdown=is_markdown,
+            enable_heading_anchors=enable_heading_anchors
+            if content_format == "markdown"
+            else False,
+            content_representation=content_representation,
+            emoji=emoji,
+            page_width=page_width,
+        )
+    except Exception as e:
+        return _space_key_error_response(
+            space_key,
+            confluence_fetcher,
+            f"Failed to create page in space '{space_key}': {e}",
+        )
+
+    page_data = page.to_simplified_dict()
     if not include_content:
-        result.pop("content", None)
-    return json.dumps(
-        {"message": "Page created successfully", "page": result},
-        indent=2,
-        ensure_ascii=False,
-    )
+        page_data.pop("content", None)
+    result: dict[str, object] = {
+        "message": "Page created successfully",
+        "page": page_data,
+    }
+    if correction_note:
+        result["note"] = correction_note
+    return json.dumps(result, indent=2, ensure_ascii=False)
 
 
 @confluence_mcp.tool(
@@ -683,6 +1075,13 @@ async def update_page(
             default=None,
         ),
     ] = None,
+    page_width: Annotated[
+        str | None,
+        Field(
+            description="Page width: 'default'=Narrow (standard), 'full-width'=Wide, 'max'=Max. Omit to use Confluence default.",
+            default=None,
+        ),
+    ] = None,
 ) -> str:
     """Update an existing Confluence page.
 
@@ -698,6 +1097,7 @@ async def update_page(
         enable_heading_anchors: Whether to enable heading anchors (markdown only).
         include_content: Whether to include page content in the response.
         emoji: Optional page title emoji (icon shown in navigation).
+        page_width: Optional page layout ('full-width', 'max', or 'default').
 
     Returns:
         JSON string representing the updated page object.
@@ -734,6 +1134,7 @@ async def update_page(
         else False,
         content_representation=content_representation,
         emoji=emoji,
+        page_width=page_width,
     )
     page_data = updated_page.to_simplified_dict()
     if not include_content:
@@ -746,7 +1147,7 @@ async def update_page(
 
 
 @confluence_mcp.tool(
-    tags={"confluence", "write", "toolset:confluence_pages"},
+    tags={"confluence", "write", "delete", "toolset:confluence_pages"},
     annotations={"title": "Delete Page", "destructiveHint": True},
 )
 @check_write_access
@@ -1865,7 +2266,13 @@ async def download_content_attachments(
 
 
 @confluence_mcp.tool(
-    tags={"confluence", "write", "attachments", "toolset:confluence_attachments"},
+    tags={
+        "confluence",
+        "write",
+        "delete",
+        "attachments",
+        "toolset:confluence_attachments",
+    },
     annotations={"title": "Delete Attachment", "destructiveHint": True},
 )
 @check_write_access

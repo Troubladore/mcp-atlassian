@@ -1,0 +1,88 @@
+{
+  "manifest_version": "0.3",
+  "name": "team-mcp-atlassian",
+  "display_name": "Team MCP Atlassian (Confluence + Jira)",
+  "version": "1.0.19",
+  "description": "Connect Claude to Confluence and Jira via sooperset/mcp-atlassian running in a sandboxed Docker container with network egress filtering. Read-only by default.",
+  "long_description": "This extension runs the mcp-atlassian MCP server inside a Docker container with network egress filtering (can ONLY connect to Atlassian domains), no filesystem mounts, and no host network access. An automatic filtering proxy prevents data exfiltration to arbitrary endpoints. Your API token is stored encrypted in your OS keychain. Read-only by default. Tool availability controlled via TOOLSETS. Delete operations blocked unless explicitly allowed.",
+  "author": {
+    "name": "Troubladore",
+    "url": "https://github.com/Troubladore/mcp-atlassian"
+  },
+  "homepage": "https://github.com/sooperset/mcp-atlassian",
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.js"],
+      "env": {
+        "ATLASSIAN_URL": "${user_config.atlassian_url}",
+        "ATLASSIAN_EMAIL": "${user_config.atlassian_email}",
+        "ATLASSIAN_API_TOKEN": "${user_config.atlassian_api_token}",
+        "TOOLSETS": "${user_config.toolsets}",
+        "READ_ONLY_MODE": "${user_config.read_only_mode}",
+        "ALLOW_DELETE_TOOLS": "${user_config.allow_delete_tools}",
+        "CONFLUENCE_SPACES_FILTER": "${user_config.confluence_spaces_filter}",
+        "JIRA_PROJECTS_FILTER": "${user_config.jira_projects_filter}"
+      }
+    }
+  },
+  "user_config": {
+    "atlassian_url": {
+      "type": "string",
+      "title": "Atlassian Site URL",
+      "description": "Your Atlassian Cloud URL, e.g. https://your-company.atlassian.net (no trailing slash)",
+      "required": true,
+      "default": "https://your-company.atlassian.net"
+    },
+    "atlassian_email": {
+      "type": "string",
+      "title": "Atlassian Email",
+      "description": "The email address you use to log into Atlassian (your Gmail)",
+      "required": true
+    },
+    "atlassian_api_token": {
+      "type": "string",
+      "title": "Atlassian API Token",
+      "description": "Generate at https://id.atlassian.com/manage-profile/security/api-tokens",
+      "sensitive": true,
+      "required": true
+    },
+    "toolsets": {
+      "type": "string",
+      "title": "Enabled Toolsets",
+      "description": "Comma-separated toolset names. Use 'default' for core tools, 'all' for everything. Available: confluence_pages, confluence_comments, confluence_labels, confluence_users, confluence_analytics, confluence_attachments, jira_issues, jira_fields, jira_comments, jira_transitions, jira_projects, jira_agile, jira_links, jira_worklog, jira_attachments, jira_users, jira_watchers, jira_service_desk, jira_forms, jira_metrics, jira_development",
+      "required": false,
+      "default": "default"
+    },
+    "read_only_mode": {
+      "type": "string",
+      "title": "Read-Only Mode",
+      "description": "Set to 'false' to enable write operations (create, update). Default is read-only.",
+      "required": false,
+      "default": "true"
+    },
+    "allow_delete_tools": {
+      "type": "string",
+      "title": "Allow Delete Operations",
+      "description": "Set to 'true' to allow delete operations. Requires read_only_mode=false. Default blocks all deletes.",
+      "required": false,
+      "default": "false"
+    },
+    "confluence_spaces_filter": {
+      "type": "string",
+      "title": "Confluence Spaces Filter",
+      "description": "Comma-separated space keys to restrict access (e.g. 'DEV,TEAM,DOC'). Leave empty for all spaces.",
+      "required": false,
+      "default": ""
+    },
+    "jira_projects_filter": {
+      "type": "string",
+      "title": "Jira Projects Filter",
+      "description": "Comma-separated project keys to restrict access (e.g. 'PROJ,DEV'). Leave empty for all projects.",
+      "required": false,
+      "default": ""
+    }
+  }
+}

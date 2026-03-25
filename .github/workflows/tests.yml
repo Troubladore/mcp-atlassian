@@ -4,9 +4,9 @@ name: Run Tests
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, community/main, team/main ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, community/main, team/main ]
 
 jobs:
   test:

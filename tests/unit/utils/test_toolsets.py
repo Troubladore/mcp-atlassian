@@ -6,6 +6,7 @@ from mcp_atlassian.utils.toolsets import (
     ALL_TOOLSETS,
     DEFAULT_TOOLSETS,
     TOOLSET_TAG_PREFIX,
+    find_tool_toolset_from_registry,
     get_enabled_toolsets,
     get_toolset_tag,
     should_include_tool_by_toolset,
@@ -158,6 +159,35 @@ class TestShouldIncludeToolByToolset:
         assert should_include_tool_by_toolset(tool_tags, enabled) is False
 
 
+class TestFindToolToolsetFromRegistry:
+    """Tests for find_tool_toolset_from_registry() helper."""
+
+    def test_finds_toolset_for_known_tool(self):
+        """Return the toolset name when a tool has a toolset tag."""
+        from unittest.mock import MagicMock
+
+        tool = MagicMock()
+        tool.tags = {"jira", "read", "toolset:jira_agile"}
+        result = find_tool_toolset_from_registry(
+            "jira_get_board", {"jira_get_board": tool}
+        )
+        assert result == "jira_agile"
+
+    def test_returns_none_for_missing_tool(self):
+        """Return None when the tool is not in the registry."""
+        result = find_tool_toolset_from_registry("no_such", {})
+        assert result is None
+
+    def test_returns_none_when_no_toolset_tag(self):
+        """Return None when the tool exists but has no toolset tag."""
+        from unittest.mock import MagicMock
+
+        tool = MagicMock()
+        tool.tags = {"jira", "read"}
+        result = find_tool_toolset_from_registry("jira_foo", {"jira_foo": tool})
+        assert result is None
+
+
 class TestGetToolsetTag:
     """Tests for get_toolset_tag() helper."""
 
@@ -253,6 +283,25 @@ class TestToolsetTagCompleteness:
 
     def test_confluence_tool_count(self, confluence_tools):
         """Verify expected number of Confluence tools."""
-        assert len(confluence_tools) == 24, (
-            f"Expected 24 Confluence tools, got {len(confluence_tools)}"
+        assert len(confluence_tools) == 27, (
+            f"Expected 27 Confluence tools, got {len(confluence_tools)}"
         )
+
+    def test_delete_tools_have_delete_tag(self, jira_tools, confluence_tools):
+        """Verify delete tools are tagged with 'delete'."""
+        all_tools = {**jira_tools, **confluence_tools}
+        expected_delete_tools = {
+            "delete_issue",
+            "delete_page",
+            "delete_attachment",
+        }
+        for name, tool in all_tools.items():
+            tags = tool.tags if hasattr(tool, "tags") else set()
+            if name in expected_delete_tools:
+                assert "delete" in tags, (
+                    f"Tool '{name}' must have 'delete' tag for safety filtering"
+                )
+            else:
+                assert "delete" not in tags, (
+                    f"Tool '{name}' has 'delete' tag but is not a delete operation"
+                )

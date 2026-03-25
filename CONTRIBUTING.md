@@ -139,3 +139,32 @@ Releases follow semantic versioning:
 ---
 
 Thank you for contributing to MCP Atlassian!
+
+---
+
+## Fork-Specific Policy (Troubladore/mcp-atlassian)
+
+### Branch Hierarchy
+
+```
+main ← community/main ← team/main
+```
+
+All changes to `main`, `community/main`, and `team/main` must use pull requests.
+
+**For team-specific work**:
+```bash
+git checkout -b feature/feature-name team/main
+git commit -S -m "changes"
+git push origin feature/feature-name
+gh pr create --base team/main --head feature/feature-name
+```
+
+**For community PR integration**:
+```bash
+git checkout -b integrate/pr-NNNN community/main
+# Apply and test the PR
+gh pr create --base community/main --head integrate/pr-NNNN
+```
+
+See `BRANCHING_STRATEGY.md` for complete fork workflows.
