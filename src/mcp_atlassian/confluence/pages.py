@@ -63,7 +63,7 @@ class PagesMixin(ConfluenceClient):
                 )
                 page = v2_adapter.get_page(
                     page_id=page_id,
-                    expand="body.storage,version,space,children.attachment,history",
+                    expand="body.storage,version,space,children.attachment,history,ancestors",
                 )
             else:
                 logger.debug(
@@ -72,7 +72,7 @@ class PagesMixin(ConfluenceClient):
                 )
                 page = self.confluence.get_page_by_id(
                     page_id=page_id,
-                    expand="body.storage,version,space,children.attachment,history",
+                    expand="body.storage,version,space,children.attachment,history,ancestors",
                 )
 
             # Check if API returned an error string
@@ -1031,7 +1031,7 @@ class PagesMixin(ConfluenceClient):
                 page = v2_adapter.get_page_by_version(
                     page_id=page_id,
                     version=version,
-                    expand="body.storage,version,space,children.attachment,history",
+                    expand="body.storage,version,space,children.attachment,history,ancestors",
                 )
             else:
                 logger.debug(
@@ -1043,7 +1043,7 @@ class PagesMixin(ConfluenceClient):
                     page_id=page_id,
                     status="historical",
                     version=version,
-                    expand="body.storage,version,space,children.attachment,history",
+                    expand="body.storage,version,space,children.attachment,history,ancestors",
                 )
 
             if isinstance(page, str):
