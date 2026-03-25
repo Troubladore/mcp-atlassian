@@ -838,19 +838,22 @@ def _build_auth_provider() -> HardenedOAuthProxy | None:
         or os.getenv("JIRA_OAUTH_CLIENT_ID")
         or os.getenv("CONFLUENCE_OAUTH_CLIENT_ID")
     )
+    redirect_uri = os.getenv("ATLASSIAN_OAUTH_REDIRECT_URI")
+    scope_env = os.getenv("ATLASSIAN_OAUTH_SCOPE", "")
+
+    if not all([instance_url, client_id, redirect_uri]):
+        logger.warning(
+            "OAuth proxy requested but non-secret configuration is incomplete."
+        )
+        return None
+
     client_secret = (
         os.getenv("ATLASSIAN_OAUTH_CLIENT_SECRET")
         or os.getenv("JIRA_OAUTH_CLIENT_SECRET")
         or os.getenv("CONFLUENCE_OAUTH_CLIENT_SECRET")
     )
-    redirect_uri = os.getenv("ATLASSIAN_OAUTH_REDIRECT_URI")
-    scope_env = os.getenv("ATLASSIAN_OAUTH_SCOPE", "")
-
-    if not all([instance_url, client_id, client_secret, redirect_uri]):
-        logger.warning(
-            "OAuth proxy requested but required vars are missing. "
-            "Need instance URL + client credentials + redirect URI."
-        )
+    if not client_secret:
+        logger.warning("OAuth proxy requested but client secret is not configured.")
         return None
 
     scopes = [s for part in scope_env.replace(",", " ").split() if (s := part)]
