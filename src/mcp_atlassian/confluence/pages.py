@@ -800,6 +800,18 @@ class PagesMixin(ConfluenceClient):
 
             # After update, refresh the page data
             return self.get_page_content(page_id)
+        except HTTPError as http_err:
+            status_code = (
+                http_err.response.status_code if http_err.response is not None else None
+            )
+            if status_code == 409:
+                raise Exception(
+                    f"A page with title '{title}' already exists in "
+                    f"this space. Page titles must be unique within "
+                    f"a space."
+                ) from http_err
+            logger.error(f"Error updating page {page_id}: {http_err}")
+            raise
         except Exception as e:
             logger.error(f"Error updating page {page_id}: {str(e)}")
             raise Exception(f"Failed to update page {page_id}: {str(e)}") from e
