@@ -489,8 +489,38 @@ def test_process_confluence_profile_macro_fallback():
     processed_html, processed_markdown = preprocessor.process_html_content(
         html, confluence_client=None
     )
-    assert "[User Profile: user999]" in processed_html
-    assert "[User Profile: user999]" in processed_markdown
+    assert 'href="confluence-user:accountId/user999"' in processed_html
+    assert "[@user999](confluence-user:accountId/user999)" in processed_markdown
+
+
+def test_profile_macro_preserves_account_id_as_pseudo_link():
+    """Profile macros should emit pseudo-links preserving the account ID."""
+    from mcp_atlassian.preprocessing.confluence import ConfluencePreprocessor
+
+    html = (
+        "<p>Assigned to "
+        '<ac:structured-macro ac:name="profile" ac:schema-version="1">'
+        '<ac:parameter ac:name="user">'
+        '<ri:user ri:account-id="prof-acct-123" />'
+        "</ac:parameter>"
+        "</ac:structured-macro>.</p>"
+    )
+
+    class CustomMock:
+        def get_user_details_by_accountid(self, account_id):
+            return {"displayName": "Profile User"}
+
+        def get_user_details_by_username(self, username):
+            return {}
+
+    preprocessor = ConfluencePreprocessor(base_url="https://example.atlassian.net")
+    _, processed_markdown = preprocessor.process_html_content(
+        html, confluence_client=CustomMock()
+    )
+
+    assert (
+        "[@Profile User](confluence-user:accountId/prof-acct-123)" in processed_markdown
+    )
 
 
 def test_process_user_profile_macro_multiple():
@@ -532,10 +562,16 @@ def test_process_user_profile_macro_multiple():
     processed_html, processed_markdown = preprocessor.process_html_content(
         html, confluence_client=CustomMockConfluenceClient()
     )
-    assert "@Test User One" in processed_html
-    assert "@Test User Two" in processed_html
-    assert "@Test User One" in processed_markdown
-    assert "@Test User Two" in processed_markdown
+    assert 'href="confluence-user:accountId/test-account-id-123"' in processed_html
+    assert 'href="confluence-user:userKey/test-userkey-456"' in processed_html
+    assert (
+        "[@Test User One](confluence-user:accountId/test-account-id-123)"
+        in processed_markdown
+    )
+    assert (
+        "[@Test User Two](confluence-user:userKey/test-userkey-456)"
+        in processed_markdown
+    )
 
 
 def test_markdown_to_confluence_no_automatic_anchors():

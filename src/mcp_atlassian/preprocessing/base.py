@@ -244,17 +244,35 @@ class BasePreprocessor:
                 )
 
             if display_name:
-                replacement_text = f"@{display_name}"
-                macro_element.replace_with(replacement_text)
+                identifier = account_id or userkey
+                id_type = "accountId" if account_id else "userKey"
+                link_tag = Tag(
+                    name="a",
+                    attrs={"href": f"confluence-user:{id_type}/{identifier}"},
+                )
+                link_tag.string = f"@{display_name}"
+                macro_element.replace_with(link_tag)
             else:
                 fallback_identifier = (
                     user_identifier_for_log
                     if user_identifier_for_log
                     else "unknown_user"
                 )
-                fallback_text = f"[User Profile: {fallback_identifier}]"
-                macro_element.replace_with(fallback_text)
-                logger.debug(f"Using fallback for user profile macro: {fallback_text}")
+                if fallback_identifier != "unknown_user":
+                    id_type = "accountId" if account_id else "userKey"
+                    link_tag = Tag(
+                        name="a",
+                        attrs={
+                            "href": f"confluence-user:{id_type}/{fallback_identifier}"
+                        },
+                    )
+                    link_tag.string = f"@{fallback_identifier}"
+                    macro_element.replace_with(link_tag)
+                else:
+                    macro_element.replace_with("[User Profile Macro (Unknown)]")
+                logger.debug(
+                    f"Using fallback for user profile macro: {fallback_identifier}"
+                )
 
     def _replace_user_mention(
         self,
