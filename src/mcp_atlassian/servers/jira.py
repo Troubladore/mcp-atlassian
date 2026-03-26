@@ -334,6 +334,28 @@ async def get_issue(
             le=100,
         ),
     ] = 10,
+    comment_order: Annotated[
+        str,
+        Field(
+            description=(
+                "Comment ordering: 'oldest' (default, chronological) "
+                "or 'newest' (most recent first). Useful for getting "
+                "the latest comments on an issue."
+            ),
+            default="oldest",
+        ),
+    ] = "oldest",
+    comment_offset: Annotated[
+        int,
+        Field(
+            description=(
+                "Number of comments to skip (after ordering). "
+                "Use with comment_limit for pagination."
+            ),
+            default=0,
+            ge=0,
+        ),
+    ] = 0,
     properties: Annotated[
         str | None,
         Field(
@@ -388,6 +410,8 @@ async def get_issue(
         fields: Comma-separated fields to return.
         expand: Optional fields to expand.
         comment_limit: Maximum number of comments.
+        comment_order: Comment ordering ('oldest' or 'newest').
+        comment_offset: Number of comments to skip.
         properties: Issue properties to return.
         update_history: Whether to update issue view history.
         include: Comma-separated enrichment sections to inline.
@@ -431,6 +455,8 @@ async def get_issue(
         fields=fields_list,
         expand=expand,
         comment_limit=comment_limit,
+        comment_order=comment_order,
+        comment_offset=comment_offset,
         properties=properties.split(",") if properties else None,
         update_history=update_history,
     )
