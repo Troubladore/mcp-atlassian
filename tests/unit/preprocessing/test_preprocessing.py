@@ -1635,3 +1635,39 @@ def test_normal_links_not_affected_by_mention_reconstruction():
 
     assert "example.com/docs" in storage
     assert "ri:user" not in storage
+
+
+def test_malformed_pseudo_links_ignored_on_write():
+    """Malformed confluence-user: links should pass through unchanged."""
+    preprocessor = ConfluencePreprocessor(base_url="https://example.atlassian.net")
+
+    # Missing slash separator
+    storage = preprocessor.markdown_to_confluence_storage(
+        "See [@Bad](confluence-user:badformat) here."
+    )
+    assert "ri:user" not in storage
+
+    # Unknown id type
+    storage = preprocessor.markdown_to_confluence_storage(
+        "See [@Bad](confluence-user:unknownType/abc) here."
+    )
+    assert "ri:user" not in storage
+
+
+def test_profile_macro_userkey_fallback_without_lookup():
+    """Profile macro with ri:userkey and no client falls back to pseudo-link with identifier."""
+    html = (
+        "<p>Mentioned "
+        '<ac:structured-macro ac:name="profile" ac:schema-version="1">'
+        '<ac:parameter ac:name="user">'
+        '<ri:user ri:userkey="serveruser42" />'
+        "</ac:parameter>"
+        "</ac:structured-macro>.</p>"
+    )
+
+    preprocessor = ConfluencePreprocessor(base_url="https://example.atlassian.net")
+    _, processed_markdown = preprocessor.process_html_content(
+        html, confluence_client=None
+    )
+
+    assert "[@serveruser42](confluence-user:userKey/serveruser42)" in processed_markdown
