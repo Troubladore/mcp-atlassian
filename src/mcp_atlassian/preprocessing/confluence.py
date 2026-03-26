@@ -20,7 +20,7 @@ try:
 except ImportError:
     from md2conf.converter import elements_from_strings as elements_from_string
 
-from .base import BasePreprocessor
+from .base import CONFLUENCE_USER_SCHEME, BasePreprocessor
 
 logger = logging.getLogger("mcp-atlassian")
 
@@ -75,11 +75,11 @@ class ConfluencePreprocessor(BasePreprocessor):
                 if child.tag != "a":
                     continue
                 href = child.get("href", "")
-                if not href.startswith("confluence-user:"):
+                scheme_prefix = f"{CONFLUENCE_USER_SCHEME}:"
+                if not href.startswith(scheme_prefix):
                     continue
 
-                # Parse: confluence-user:accountId/XXX or confluence-user:userKey/XXX
-                remainder = href[len("confluence-user:") :]
+                remainder = href[len(scheme_prefix) :]
                 if "/" not in remainder:
                     continue
                 id_type, id_value = remainder.split("/", 1)
