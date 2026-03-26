@@ -309,6 +309,56 @@ class TestIssuesMixin:
         # Test with invalid string
         assert issues_mixin._normalize_comment_limit("invalid") == 10
 
+    def test_comment_limit_all_pages_until_exhaustion(
+        self, issues_mixin: IssuesMixin, make_issue_data
+    ):
+        """comment_limit="all" must fetch every comment, not cap at a fixed number.
+
+        Regression: a prior implementation replaced "all" with limit=5000,
+        silently dropping comments beyond that threshold. This test uses
+        a total (8000) that exceeds any reasonable single-request cap,
+        and verifies every comment appears in the result.
+        """
+        issue_data = make_issue_data(
+            comment={"comments": [{"id": "1", "body": "stub"}]}
+        )
+        issues_mixin.jira.get_issue.return_value = issue_data
+
+        # Simulate 8000 comments across multiple pages — more than any
+        # single-request cap would fetch
+        total = 8000
+        page_size = 100
+
+        def mock_get_issue_comments(issue_key, limit=50, offset=0, order="oldest"):
+            start = offset
+            end = min(start + limit, total)
+            items = [{"id": str(i), "body": f"c{i}"} for i in range(start, end)]
+            return {
+                "items": items,
+                "total": total,
+                "returned": len(items),
+                "offset": offset,
+                "has_more": end < total,
+                "order": order,
+            }
+
+        issues_mixin.get_issue_comments = MagicMock(side_effect=mock_get_issue_comments)
+
+        issue = issues_mixin.get_issue(
+            "TEST-123",
+            comment_limit="all",
+            fields="summary,comment",
+        )
+
+        # The result must contain all 8000 comments
+        assert len(issue.comments) == total
+        # Paging must have happened — no single call with limit >= 8000
+        for call in issues_mixin.get_issue_comments.call_args_list:
+            assert (
+                call.kwargs.get("limit", call.args[1] if len(call.args) > 1 else 100)
+                < total
+            )
+
     def test_create_issue_basic(self, issues_mixin: IssuesMixin, make_issue_data):
         """Test creating a basic issue."""
         create_response = {"id": "12345", "key": "TEST-123"}
