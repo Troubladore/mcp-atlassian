@@ -30,128 +30,182 @@ class TestCommentsMixin:
     def test_get_issue_comments_basic(self, comments_mixin):
         """Test get_issue_comments with basic data."""
         # Setup mock response
-        comments_mixin.jira.issue_get_comments.return_value = {
-            "comments": [
-                {
-                    "id": "10001",
-                    "body": "This is a comment",
-                    "created": "2024-01-01T10:00:00.000+0000",
-                    "updated": "2024-01-01T11:00:00.000+0000",
-                    "author": {"displayName": "John Doe"},
-                }
-            ]
-        }
+        comments_mixin.jira.get = Mock(
+            return_value={
+                "comments": [
+                    {
+                        "id": "10001",
+                        "body": "This is a comment",
+                        "created": "2024-01-01T10:00:00.000+0000",
+                        "updated": "2024-01-01T11:00:00.000+0000",
+                        "author": {"displayName": "John Doe"},
+                    }
+                ],
+                "total": 1,
+                "startAt": 0,
+                "maxResults": 50,
+            }
+        )
 
         # Call the method
         result = comments_mixin.get_issue_comments("TEST-123")
 
         # Verify
-        comments_mixin.jira.issue_get_comments.assert_called_once_with("TEST-123")
-        assert len(result) == 1
-        assert result[0]["id"] == "10001"
-        assert result[0]["body"] == "This is a comment"
-        assert result[0]["created"] == "2024-01-01 10:00:00+00:00"  # Parsed date
-        assert result[0]["author"] == "John Doe"
+        comments_mixin.jira.get.assert_called_once()
+        assert result["returned"] == 1
+        assert result["items"][0]["id"] == "10001"
+        assert result["items"][0]["body"] == "This is a comment"
+        assert result["items"][0]["created"] == "2024-01-01 10:00:00+00:00"
+        assert result["items"][0]["author"] == "John Doe"
 
     def test_get_issue_comments_with_limit(self, comments_mixin):
         """Test get_issue_comments with limit parameter."""
-        # Setup mock response with multiple comments
-        comments_mixin.jira.issue_get_comments.return_value = {
-            "comments": [
-                {
-                    "id": "10001",
-                    "body": "First comment",
-                    "created": "2024-01-01T10:00:00.000+0000",
-                    "author": {"displayName": "John Doe"},
-                },
-                {
-                    "id": "10002",
-                    "body": "Second comment",
-                    "created": "2024-01-02T10:00:00.000+0000",
-                    "author": {"displayName": "Jane Smith"},
-                },
-                {
-                    "id": "10003",
-                    "body": "Third comment",
-                    "created": "2024-01-03T10:00:00.000+0000",
-                    "author": {"displayName": "Bob Johnson"},
-                },
-            ]
-        }
+        # Setup mock response — API returns only 2 due to maxResults=2
+        comments_mixin.jira.get = Mock(
+            return_value={
+                "comments": [
+                    {
+                        "id": "10001",
+                        "body": "First comment",
+                        "created": "2024-01-01T10:00:00.000+0000",
+                        "author": {"displayName": "John Doe"},
+                    },
+                    {
+                        "id": "10002",
+                        "body": "Second comment",
+                        "created": "2024-01-02T10:00:00.000+0000",
+                        "author": {"displayName": "Jane Smith"},
+                    },
+                ],
+                "total": 3,
+                "startAt": 0,
+                "maxResults": 2,
+            }
+        )
 
         # Call the method with limit=2
         result = comments_mixin.get_issue_comments("TEST-123", limit=2)
 
         # Verify
-        comments_mixin.jira.issue_get_comments.assert_called_once_with("TEST-123")
-        assert len(result) == 2  # Only 2 comments should be returned
-        assert result[0]["id"] == "10001"
-        assert result[1]["id"] == "10002"
-        # Third comment shouldn't be included due to limit
+        comments_mixin.jira.get.assert_called_once()
+        assert len(result["items"]) == 2
+        assert result["items"][0]["id"] == "10001"
+        assert result["items"][1]["id"] == "10002"
+        assert result["has_more"] is True
+        assert result["total"] == 3
 
     def test_get_issue_comments_with_missing_fields(self, comments_mixin):
         """Test get_issue_comments with missing fields in the response."""
         # Setup mock response with missing fields
-        comments_mixin.jira.issue_get_comments.return_value = {
-            "comments": [
-                {
-                    "id": "10001",
-                    # Missing body field
-                    "created": "2024-01-01T10:00:00.000+0000",
-                    # Missing author field
-                },
-                {
-                    # Missing id field
-                    "body": "Second comment",
-                    # Missing created field
-                    "author": {},  # Empty author object
-                },
-                {
-                    "id": "10003",
-                    "body": "Third comment",
-                    "created": "2024-01-03T10:00:00.000+0000",
-                    "author": {"name": "user123"},  # Using name instead of displayName
-                },
-            ]
-        }
+        comments_mixin.jira.get = Mock(
+            return_value={
+                "comments": [
+                    {
+                        "id": "10001",
+                        # Missing body field
+                        "created": "2024-01-01T10:00:00.000+0000",
+                        # Missing author field
+                    },
+                    {
+                        # Missing id field
+                        "body": "Second comment",
+                        # Missing created field
+                        "author": {},  # Empty author object
+                    },
+                    {
+                        "id": "10003",
+                        "body": "Third comment",
+                        "created": "2024-01-03T10:00:00.000+0000",
+                        "author": {"name": "user123"},
+                    },
+                ],
+                "total": 3,
+                "startAt": 0,
+                "maxResults": 50,
+            }
+        )
 
         # Call the method
         result = comments_mixin.get_issue_comments("TEST-123")
 
         # Verify
-        assert len(result) == 3
-        assert result[0]["id"] == "10001"
-        assert result[0]["body"] == ""  # Should default to empty string
-        assert result[0]["author"] == "Unknown"  # Should default to Unknown
+        assert len(result["items"]) == 3
+        assert result["items"][0]["id"] == "10001"
+        assert result["items"][0]["body"] == ""  # Should default to empty string
+        assert result["items"][0]["author"] == "Unknown"
 
         assert (
-            "id" not in result[1] or not result[1]["id"]
+            "id" not in result["items"][1] or not result["items"][1]["id"]
         )  # Should be missing or empty
-        assert result[1]["author"] == "Unknown"  # Should default to Unknown
+        assert result["items"][1]["author"] == "Unknown"
 
         assert (
-            result[2]["author"] == "Unknown"
+            result["items"][2]["author"] == "Unknown"
         )  # Should use Unknown when only name is available
 
     def test_get_issue_comments_with_empty_response(self, comments_mixin):
         """Test get_issue_comments with an empty response."""
         # Setup mock response with no comments
-        comments_mixin.jira.issue_get_comments.return_value = {"comments": []}
+        comments_mixin.jira.get = Mock(
+            return_value={
+                "comments": [],
+                "total": 0,
+                "startAt": 0,
+                "maxResults": 50,
+            }
+        )
 
         # Call the method
         result = comments_mixin.get_issue_comments("TEST-123")
 
         # Verify
-        assert len(result) == 0  # Should return an empty list
+        assert len(result["items"]) == 0
+        assert result["total"] == 0
+        assert result["has_more"] is False
 
     def test_get_issue_comments_with_error(self, comments_mixin):
         """Test get_issue_comments with an error response."""
         # Setup mock to raise exception
-        comments_mixin.jira.issue_get_comments.side_effect = Exception("API Error")
+        comments_mixin.jira.get = Mock(side_effect=Exception("API Error"))
 
         # Verify it raises the wrapped exception
         with pytest.raises(Exception, match="Error getting comments"):
             comments_mixin.get_issue_comments("TEST-123")
+
+    def test_get_issue_comments_returns_structured_result(self, comments_mixin):
+        """get_issue_comments returns dict with items, total, and metadata."""
+        comments_mixin.jira.get = Mock(
+            return_value={
+                "comments": [
+                    {
+                        "id": "10001",
+                        "body": "First comment",
+                        "created": "2024-01-01T10:00:00.000+0000",
+                        "updated": "2024-01-01T10:00:00.000+0000",
+                        "author": {"displayName": "John Doe"},
+                    },
+                ],
+                "total": 5,
+                "startAt": 0,
+                "maxResults": 10,
+            }
+        )
+
+        result = comments_mixin.get_issue_comments("TEST-123", limit=10)
+
+        assert isinstance(result, dict)
+        assert "items" in result
+        assert "total" in result
+        assert "returned" in result
+        assert "offset" in result
+        assert "has_more" in result
+        assert "order" in result
+        assert len(result["items"]) == 1
+        assert result["total"] == 5
+        assert result["returned"] == 1
+        assert result["offset"] == 0
+        assert result["has_more"] is True
+        assert result["order"] == "oldest"
 
     def test_add_comment_basic(self, comments_mixin):
         """Test add_comment with basic data (Cloud → ADF via v3 API)."""
