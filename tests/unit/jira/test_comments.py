@@ -547,6 +547,44 @@ class TestCommentsMixin:
         assert result["issue_key"] == "TEST-123"
         assert result["comment_id"] == "10001"
 
+    def test_delete_comment_server(self, server_comments_mixin):
+        """Test delete_comment on Server/DC uses DELETE /rest/api/2/."""
+        server_comments_mixin.jira.delete = Mock(return_value=None)
+
+        result = server_comments_mixin.delete_comment("TEST-123", "10001")
+
+        server_comments_mixin.jira.delete.assert_called_once_with(
+            "rest/api/2/issue/TEST-123/comment/10001"
+        )
+        assert result["success"] is True
+        assert result["issue_key"] == "TEST-123"
+        assert result["comment_id"] == "10001"
+
+    def test_delete_comment_not_found(self, comments_mixin):
+        """Test delete_comment raises on 404."""
+        comments_mixin._delete_api3 = Mock(
+            side_effect=Exception("404 Client Error: Not Found")
+        )
+
+        with pytest.raises(Exception, match="not found"):
+            comments_mixin.delete_comment("TEST-123", "99999")
+
+    def test_delete_comment_forbidden(self, comments_mixin):
+        """Test delete_comment raises on 403."""
+        comments_mixin._delete_api3 = Mock(
+            side_effect=Exception("403 Client Error: Forbidden")
+        )
+
+        with pytest.raises(Exception, match="Permission denied"):
+            comments_mixin.delete_comment("TEST-123", "10001")
+
+    def test_delete_comment_generic_error(self, comments_mixin):
+        """Test delete_comment wraps generic errors."""
+        comments_mixin._delete_api3 = Mock(side_effect=Exception("Connection timeout"))
+
+        with pytest.raises(Exception, match="Error deleting comment"):
+            comments_mixin.delete_comment("TEST-123", "10001")
+
     def test_add_comment_public_none_uses_jira_api(self, comments_mixin):
         """public=None (default) uses normal Jira API path."""
         mock_response = {
