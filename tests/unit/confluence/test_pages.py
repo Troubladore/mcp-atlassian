@@ -1,8 +1,9 @@
 """Unit tests for the PagesMixin class."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
+from requests.exceptions import HTTPError
 
 from mcp_atlassian.confluence.pages import PagesMixin
 from mcp_atlassian.confluence.utils import extract_emoji_from_property
@@ -468,6 +469,17 @@ class TestPagesMixin:
         # Act/Assert
         with pytest.raises(Exception, match="Failed to update page"):
             pages_mixin.update_page("987654321", "Test Page", "<p>Content</p>")
+
+    def test_update_page_duplicate_title_error(self, pages_mixin):
+        """Test that duplicate title gives a clear error, not a generic one."""
+        mock_response = Mock()
+        mock_response.status_code = 409
+        mock_response.text = "A page with this title already exists in the space"
+        http_err = HTTPError(response=mock_response)
+        pages_mixin.confluence.update_page.side_effect = http_err
+
+        with pytest.raises(Exception, match="title.*already exists"):
+            pages_mixin.update_page("987654321", "Duplicate Title", "<p>Content</p>")
 
     def test_update_page_preserves_existing_width_by_default(self, pages_mixin):
         """Test updating a page preserves the current width when none is provided."""
