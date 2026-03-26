@@ -534,6 +534,19 @@ class TestCommentsMixin:
                 public=True,
             )
 
+    def test_delete_comment_cloud(self, comments_mixin):
+        """Test delete_comment on Cloud uses DELETE /rest/api/3/."""
+        comments_mixin._delete_api3 = Mock(return_value=None)
+
+        result = comments_mixin.delete_comment("TEST-123", "10001")
+
+        comments_mixin._delete_api3.assert_called_once_with(
+            "issue/TEST-123/comment/10001"
+        )
+        assert result["success"] is True
+        assert result["issue_key"] == "TEST-123"
+        assert result["comment_id"] == "10001"
+
     def test_add_comment_public_none_uses_jira_api(self, comments_mixin):
         """public=None (default) uses normal Jira API path."""
         mock_response = {

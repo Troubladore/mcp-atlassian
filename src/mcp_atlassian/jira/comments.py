@@ -257,3 +257,43 @@ class CommentsMixin(JiraClient):
                 f"Error editing comment {comment_id} on issue {issue_key}: {str(e)}"
             )
             raise Exception(f"Error editing comment: {str(e)}") from e
+
+    def delete_comment(self, issue_key: str, comment_id: str) -> dict[str, Any]:
+        """Delete a comment from an issue.
+
+        Args:
+            issue_key: The issue key (e.g. 'PROJ-123')
+            comment_id: The ID of the comment to delete
+
+        Returns:
+            Confirmation dict with success status, issue_key, and comment_id
+
+        Raises:
+            Exception: If there is an error deleting the comment
+        """
+        try:
+            if self.config.is_cloud:
+                self._delete_api3(f"issue/{issue_key}/comment/{comment_id}")
+            else:
+                url = f"rest/api/2/issue/{issue_key}/comment/{comment_id}"
+                self.jira.delete(url)
+            return {
+                "success": True,
+                "issue_key": issue_key,
+                "comment_id": comment_id,
+            }
+        except Exception as e:
+            error_msg = str(e)
+            if "404" in error_msg or "not found" in error_msg.lower():
+                raise Exception(
+                    f"Comment {comment_id} not found on issue {issue_key}: {error_msg}"
+                ) from e
+            if "403" in error_msg or "forbidden" in error_msg.lower():
+                raise Exception(
+                    f"Permission denied deleting comment {comment_id} "
+                    f"on issue {issue_key}: {error_msg}"
+                ) from e
+            logger.error(
+                f"Error deleting comment {comment_id} on issue {issue_key}: {error_msg}"
+            )
+            raise Exception(f"Error deleting comment: {error_msg}") from e

@@ -312,6 +312,11 @@ class JiraClient:
         url = self.jira.resource_url(resource, api_version="3")
         return self.jira.put(url, data=data)
 
+    def _delete_api3(self, resource: str) -> Any:
+        """DELETE on Jira REST API v3."""
+        url = self.jira.resource_url(resource, api_version="3")
+        return self.jira.delete(url)
+
     def get_paged(
         self,
         method: Literal["get", "post"],
