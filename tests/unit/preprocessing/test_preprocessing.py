@@ -1578,3 +1578,60 @@ def test_markdown_to_storage_reconstructs_userkey_mention():
     assert 'ri:userkey="jdoe"' in storage
     assert "<ac:link>" in storage
     assert "Jane Doe" in storage
+
+
+def test_mention_round_trip_preserves_identity():
+    """Storage->markdown->storage should preserve the user account ID."""
+    storage_input = (
+        "<p>Check with "
+        '<ac:link><ri:user ri:account-id="round-trip-id"/>'
+        "<ac:link-body>@Round Trip User</ac:link-body></ac:link>"
+        " about this.</p>"
+    )
+
+    preprocessor = ConfluencePreprocessor(base_url="https://example.atlassian.net")
+
+    # Read: storage -> markdown
+    _, markdown = preprocessor.process_html_content(
+        storage_input, confluence_client=MockConfluenceClient()
+    )
+
+    # The markdown should contain the pseudo-link
+    assert "confluence-user:accountId/round-trip-id" in markdown
+
+    # Write: markdown -> storage
+    storage_output = preprocessor.markdown_to_confluence_storage(markdown)
+
+    # The storage should have the account ID back
+    assert 'ri:account-id="round-trip-id"' in storage_output
+
+
+def test_plain_at_mention_passes_through_on_write():
+    """Plain @Name text (no pseudo-link) should not be converted to a mention."""
+    markdown = "Talk to @John Smith about this."
+    preprocessor = ConfluencePreprocessor(base_url="https://example.atlassian.net")
+    storage = preprocessor.markdown_to_confluence_storage(markdown)
+
+    # Should NOT contain any ri:user or ac:link
+    assert "ri:user" not in storage
+    assert "ri:account-id" not in storage
+    assert "@John Smith" in storage
+
+
+def test_mention_with_bold_formatting_round_trips():
+    """Bold-wrapped mentions should preserve identity through round-trip."""
+    markdown = "Assigned to **[@John Smith](confluence-user:accountId/bold-test-id)**."
+    preprocessor = ConfluencePreprocessor(base_url="https://example.atlassian.net")
+    storage = preprocessor.markdown_to_confluence_storage(markdown)
+
+    assert 'ri:account-id="bold-test-id"' in storage
+
+
+def test_normal_links_not_affected_by_mention_reconstruction():
+    """Regular markdown links should pass through unchanged."""
+    markdown = "See [the docs](https://example.com/docs) for details."
+    preprocessor = ConfluencePreprocessor(base_url="https://example.atlassian.net")
+    storage = preprocessor.markdown_to_confluence_storage(markdown)
+
+    assert "example.com/docs" in storage
+    assert "ri:user" not in storage
