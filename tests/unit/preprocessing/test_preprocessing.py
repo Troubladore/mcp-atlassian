@@ -112,8 +112,22 @@ def test_process_html_content_with_user_mentions(preprocessor_with_confluence):
         )
     )
 
-    assert "@Test User 123456" in processed_html
-    assert "@Test User 123456" in processed_markdown
+    assert 'href="confluence-user:accountId/123456"' in processed_html
+    assert "[@Test User 123456](confluence-user:accountId/123456)" in processed_markdown
+
+
+def test_mention_preserves_account_id_as_pseudo_link(preprocessor_with_confluence):
+    """Mentions should emit markdown pseudo-links preserving the account ID."""
+    html = """
+    <ac:link>
+        <ri:user ri:account-id="abc123"/>
+    </ac:link>
+    """
+    _, processed_markdown = preprocessor_with_confluence.process_html_content(
+        html, confluence_client=MockConfluenceClient()
+    )
+
+    assert "[@Test User abc123](confluence-user:accountId/abc123)" in processed_markdown
 
 
 def test_clean_jira_text_empty(preprocessor_with_jira):

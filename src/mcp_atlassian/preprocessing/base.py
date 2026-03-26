@@ -262,8 +262,12 @@ class BasePreprocessor:
                 )
                 display_name = user_details.get("displayName", "")
                 if display_name:
-                    new_text = f"@{display_name}"
-                    user_element.replace_with(new_text)
+                    link_tag = Tag(
+                        name="a",
+                        attrs={"href": f"confluence-user:accountId/{account_id}"},
+                    )
+                    link_tag.string = f"@{display_name}"
+                    user_element.replace_with(link_tag)
                     return
             # If we don't have a confluence client or couldn't get user details,
             # use fallback
@@ -280,9 +284,13 @@ class BasePreprocessor:
             user_element: The HTML element containing the user mention
             account_id: The user's account ID
         """
-        # Fallback: just use the account ID
-        new_text = f"@user_{account_id}"
-        user_element.replace_with(new_text)
+        # Fallback: use the account ID with a pseudo-link
+        link_tag = Tag(
+            name="a",
+            attrs={"href": f"confluence-user:accountId/{account_id}"},
+        )
+        link_tag.string = f"@user_{account_id}"
+        user_element.replace_with(link_tag)
 
     def _find_attachment_url(
         self,
