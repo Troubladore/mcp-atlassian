@@ -31,6 +31,19 @@ class TestIssuesMixin:
         # to jira.create_issue / jira.update_issue so existing mocks work.
         setup_api3_passthrough_mocks(mixin)
 
+        # Default empty comments result for get_issue_comments
+        # (called by _get_issue_comments_if_needed)
+        mixin.get_issue_comments = MagicMock(
+            return_value={
+                "items": [],
+                "total": 0,
+                "returned": 0,
+                "offset": 0,
+                "has_more": False,
+                "order": "oldest",
+            }
+        )
+
         return mixin
 
     def test_get_issue_basic(self, issues_mixin: IssuesMixin, make_issue_data):
@@ -78,7 +91,23 @@ class TestIssuesMixin:
         )
 
         issues_mixin.jira.get_issue.return_value = issue_data
-        issues_mixin.jira.issue_get_comments.return_value = comments_data
+        # Mock get_issue_comments (called by _get_issue_comments_if_needed)
+        issues_mixin.get_issue_comments.return_value = {
+            "items": [
+                {
+                    "id": "1",
+                    "body": "This is a comment",
+                    "author": "John Doe",
+                    "created": "2023-01-02T00:00:00.000+0000",
+                    "updated": "2023-01-02T00:00:00.000+0000",
+                }
+            ],
+            "total": 1,
+            "returned": 1,
+            "offset": 0,
+            "has_more": False,
+            "order": "oldest",
+        }
 
         issue = issues_mixin.get_issue(
             "TEST-123",
@@ -93,7 +122,9 @@ class TestIssuesMixin:
             properties=None,
             update_history=True,
         )
-        issues_mixin.jira.issue_get_comments.assert_called_once_with("TEST-123")
+        issues_mixin.get_issue_comments.assert_called_once_with(
+            "TEST-123", limit=10, offset=0, order="oldest"
+        )
 
         # Verify the comments were added to the issue
         assert hasattr(issue, "comments")
@@ -131,7 +162,23 @@ class TestIssuesMixin:
         }
 
         issues_mixin.jira.get_issue.return_value = issue_data
-        issues_mixin.jira.issue_get_comments.return_value = comments_data
+        # Mock get_issue_comments (called by _get_issue_comments_if_needed)
+        issues_mixin.get_issue_comments.return_value = {
+            "items": [
+                {
+                    "id": "1",
+                    "body": "Auto-fetched comment",
+                    "author": "Jane Doe",
+                    "created": "2023-01-02T00:00:00.000+0000",
+                    "updated": "2023-01-02T00:00:00.000+0000",
+                }
+            ],
+            "total": 1,
+            "returned": 1,
+            "offset": 0,
+            "has_more": False,
+            "order": "oldest",
+        }
 
         issue = issues_mixin.get_issue("TEST-123", comment_limit=10)
 
@@ -139,7 +186,9 @@ class TestIssuesMixin:
         fields_param = call_args[1]["fields"]
         assert "comment" in fields_param
 
-        issues_mixin.jira.issue_get_comments.assert_called_once_with("TEST-123")
+        issues_mixin.get_issue_comments.assert_called_once_with(
+            "TEST-123", limit=10, offset=0, order="oldest"
+        )
         assert hasattr(issue, "comments")
         assert len(issue.comments) == 1
         assert issue.comments[0].body == "Auto-fetched comment"
@@ -169,7 +218,7 @@ class TestIssuesMixin:
         fields_param = call_args[1]["fields"]
         assert "comment" not in fields_param
 
-        issues_mixin.jira.issue_get_comments.assert_not_called()
+        issues_mixin.get_issue_comments.assert_not_called()
 
     def test_get_issue_with_epic_info(self, issues_mixin: IssuesMixin, make_issue_data):
         """Test retrieving issue with epic information."""
@@ -267,8 +316,6 @@ class TestIssuesMixin:
 
         issues_mixin.jira.get_issue.return_value = make_issue_data()
 
-        issues_mixin.jira.issue_get_comments.return_value = {"comments": []}
-
         # Call create_issue
         issue = issues_mixin.create_issue(
             project_key="TEST",
@@ -297,8 +344,6 @@ class TestIssuesMixin:
         issues_mixin.jira.create_issue.return_value = create_response
 
         issues_mixin.jira.get_issue.return_value = make_issue_data()
-
-        issues_mixin.jira.issue_get_comments.return_value = {"comments": []}
 
         # Call create_issue with components=None
         issue = issues_mixin.create_issue(
@@ -332,8 +377,6 @@ class TestIssuesMixin:
         issues_mixin.jira.get_issue.return_value = make_issue_data(
             components=[{"name": "UI"}]
         )
-
-        issues_mixin.jira.issue_get_comments.return_value = {"comments": []}
 
         # Call create_issue with a single component
         issue = issues_mixin.create_issue(
@@ -370,8 +413,6 @@ class TestIssuesMixin:
         issues_mixin.jira.get_issue.return_value = make_issue_data(
             components=[{"name": "UI"}, {"name": "API"}]
         )
-
-        issues_mixin.jira.issue_get_comments.return_value = {"comments": []}
 
         # Call create_issue with multiple components
         issue = issues_mixin.create_issue(
@@ -410,8 +451,6 @@ class TestIssuesMixin:
             components=[{"name": "Valid"}, {"name": "Backend"}]
         )
 
-        issues_mixin.jira.issue_get_comments.return_value = {"comments": []}
-
         # Call create_issue with components list containing invalid entries
         issue = issues_mixin.create_issue(
             project_key="TEST",
@@ -448,8 +487,6 @@ class TestIssuesMixin:
         issues_mixin.jira.get_issue.return_value = make_issue_data(
             components=[{"name": "Explicit"}]
         )
-
-        issues_mixin.jira.issue_get_comments.return_value = {"comments": []}
 
         # Direct test for the precedence handling logic
         # Create fields dict with components already set by explicit parameter
@@ -607,8 +644,6 @@ class TestIssuesMixin:
             summary="Updated Summary", status="In Progress"
         )
 
-        issues_mixin.jira.issue_get_comments.return_value = {"comments": []}
-
         # Call the method
         document = issues_mixin.update_issue(
             issue_key="TEST-123", fields={"summary": "Updated Summary"}
@@ -673,7 +708,7 @@ class TestIssuesMixin:
         issues_mixin.jira.get_issue.return_value = make_issue_data(
             description="This is a test"
         )
-        issues_mixin.jira.issue_get_comments.return_value = {"comments": []}
+
         issues_mixin._get_account_id = MagicMock()
 
         document = issues_mixin.update_issue(issue_key="TEST-123", assignee=None)
@@ -689,7 +724,7 @@ class TestIssuesMixin:
         issues_mixin.jira.get_issue.return_value = make_issue_data(
             description="This is a test"
         )
-        issues_mixin.jira.issue_get_comments.return_value = {"comments": []}
+
         issues_mixin._get_account_id = MagicMock(return_value="account-123")
 
         document = issues_mixin.assign_issue(
@@ -707,7 +742,7 @@ class TestIssuesMixin:
         issues_mixin.jira.get_issue.return_value = make_issue_data(
             description="This is a test"
         )
-        issues_mixin.jira.issue_get_comments.return_value = {"comments": []}
+
         issues_mixin._get_account_id = MagicMock()
 
         document = issues_mixin.assign_issue(issue_key="TEST-123", assignee=None)
@@ -723,7 +758,7 @@ class TestIssuesMixin:
         issues_mixin.jira.get_issue.return_value = make_issue_data(
             description="This is a test"
         )
-        issues_mixin.jira.issue_get_comments.return_value = {"comments": []}
+
         issues_mixin._get_account_id = MagicMock()
 
         document = issues_mixin.assign_issue(issue_key="TEST-123", assignee="")
@@ -753,7 +788,7 @@ class TestIssuesMixin:
             },
         }
         issues_mixin.jira.get_issue.return_value = issue_data
-        issues_mixin.jira.issue_get_comments.return_value = {"comments": []}
+
         issues_mixin._generate_field_map = MagicMock(  # type: ignore[assignment]
             return_value={"components": "components"}
         )
@@ -787,7 +822,7 @@ class TestIssuesMixin:
             },
         }
         issues_mixin.jira.get_issue.return_value = issue_data
-        issues_mixin.jira.issue_get_comments.return_value = {"comments": []}
+
         issues_mixin._generate_field_map = MagicMock(  # type: ignore[assignment]
             return_value={"components": "components"}
         )
@@ -819,7 +854,7 @@ class TestIssuesMixin:
             },
         }
         issues_mixin.jira.get_issue.return_value = issue_data
-        issues_mixin.jira.issue_get_comments.return_value = {"comments": []}
+
         issues_mixin._generate_field_map = MagicMock(  # type: ignore[assignment]
             return_value={"components": "components"}
         )
@@ -848,7 +883,6 @@ class TestIssuesMixin:
             },
         }
         issues_mixin.jira.get_issue.return_value = issue_data
-        issues_mixin.jira.issue_get_comments.return_value = {"comments": []}
 
         issues_mixin.update_issue(issue_key="TEST-123", priority=None)
 

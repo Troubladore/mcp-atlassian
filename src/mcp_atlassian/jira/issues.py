@@ -15,6 +15,7 @@ from .client import JiraClient
 from .constants import DEFAULT_READ_JIRA_FIELDS
 from .protocols import (
     AttachmentsOperationsProto,
+    CommentOperationsProto,
     EpicOperationsProto,
     FieldsOperationsProto,
     FormsOperationsProto,
@@ -32,6 +33,7 @@ _EPIC_LINK_ALIASES = frozenset({"epickey", "epic_link", "epiclink", "epic link"}
 class IssuesMixin(
     JiraClient,
     AttachmentsOperationsProto,
+    CommentOperationsProto,
     EpicOperationsProto,
     FieldsOperationsProto,
     FormsOperationsProto,
@@ -46,6 +48,8 @@ class IssuesMixin(
         issue_key: str,
         expand: str | None = None,
         comment_limit: int | str | None = 10,
+        comment_order: str = "oldest",
+        comment_offset: int = 0,
         fields: str | list[str] | tuple[str, ...] | set[str] | None = None,
         properties: str | list[str] | None = None,
         update_history: bool = True,
@@ -57,6 +61,8 @@ class IssuesMixin(
             issue_key: The issue key (e.g., PROJECT-123)
             expand: Fields to expand in the response
             comment_limit: Maximum number of comments to include, or "all"
+            comment_order: Comment ordering — "oldest" or "newest"
+            comment_offset: Number of comments to skip (after ordering)
             fields: Fields to return (comma-separated string, list, tuple, set, or "*all")
             properties: Issue properties to return (comma-separated string or list)
             update_history: Whether to update the issue view history
@@ -192,11 +198,19 @@ class IssuesMixin(
             # Get comments if needed
             if "comment" in fields_data:
                 comment_limit_int = self._normalize_comment_limit(comment_limit)
-                comments = self._get_issue_comments_if_needed(
-                    issue_key, comment_limit_int
+                comments_result = self._get_issue_comments_if_needed(
+                    issue_key, comment_limit_int, comment_order, comment_offset
                 )
                 # Add comments to the issue data for processing by the model
-                fields_data["comment"]["comments"] = comments
+                fields_data["comment"]["comments"] = comments_result["items"]
+                # Store metadata for later inclusion in output
+                fields_data["_comments_meta"] = {
+                    "total": comments_result["total"],
+                    "returned": comments_result["returned"],
+                    "offset": comments_result["offset"],
+                    "has_more": comments_result["has_more"],
+                    "order": comments_result["order"],
+                }
 
             # Clean comment bodies (convert Jira wiki markup/HTML to Markdown)
             # Must happen AFTER _get_issue_comments_if_needed which may replace comments
@@ -315,37 +329,50 @@ class IssuesMixin(
             return 10
 
     def _get_issue_comments_if_needed(
-        self, issue_key: str, comment_limit: int | None
-    ) -> list[dict]:
-        """
-        Get comments for an issue if needed.
+        self,
+        issue_key: str,
+        comment_limit: int | None,
+        comment_order: str = "oldest",
+        comment_offset: int = 0,
+    ) -> dict[str, Any]:
+        """Get comments for an issue if needed.
 
         Args:
             issue_key: The issue key
             comment_limit: Maximum number of comments to include
+            comment_order: Comment ordering — "oldest" or "newest"
+            comment_offset: Number of comments to skip
 
         Returns:
-            List of comments
+            Dict with items, total, returned, offset, has_more, order
         """
         if comment_limit is None or comment_limit > 0:
             try:
-                response = self.jira.issue_get_comments(issue_key)
-                if not isinstance(response, dict):
-                    msg = f"Unexpected return value type from `jira.issue_get_comments`: {type(response)}"
-                    logger.error(msg)
-                    raise TypeError(msg)
-
-                comments = response["comments"]
-
-                # Limit comments if needed
-                if comment_limit is not None:
-                    comments = comments[:comment_limit]
-
-                return comments
+                limit = comment_limit if comment_limit is not None else 5000
+                return self.get_issue_comments(
+                    issue_key,
+                    limit=limit,
+                    offset=comment_offset,
+                    order=comment_order,
+                )
             except Exception as e:
                 logger.warning(f"Error getting comments for {issue_key}: {str(e)}")
-                return []
-        return []
+                return {
+                    "items": [],
+                    "total": 0,
+                    "returned": 0,
+                    "offset": comment_offset,
+                    "has_more": False,
+                    "order": comment_order,
+                }
+        return {
+            "items": [],
+            "total": 0,
+            "returned": 0,
+            "offset": 0,
+            "has_more": False,
+            "order": comment_order,
+        }
 
     def _extract_epic_information(self, issue: dict) -> dict[str, str | None]:
         """

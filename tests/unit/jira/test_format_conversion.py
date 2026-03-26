@@ -90,18 +90,25 @@ class TestFormatConversionIntegration:
             },
         }
 
-        # Need to mock issue_get_comments as well
-        jira_fetcher_with_real_preprocessor.jira.issue_get_comments.return_value = {
-            "comments": [
-                {
-                    "id": "10001",
-                    "body": "h1. Important Update\n\n# First item\n# Second item\n\n*Status:* Done",
-                    "created": "2023-01-01T10:00:00.000+0000",
-                    "updated": "2023-01-01T10:00:00.000+0000",
-                    "author": {"displayName": "Test User"},
-                }
-            ]
-        }
+        # Mock get_issue_comments (called by _get_issue_comments_if_needed)
+        jira_fetcher_with_real_preprocessor.get_issue_comments = Mock(
+            return_value={
+                "items": [
+                    {
+                        "id": "10001",
+                        "body": "h1. Important Update\n\n# First item\n# Second item\n\n*Status:* Done",
+                        "created": "2023-01-01T10:00:00.000+0000",
+                        "updated": "2023-01-01T10:00:00.000+0000",
+                        "author": "Test User",
+                    }
+                ],
+                "total": 1,
+                "returned": 1,
+                "offset": 0,
+                "has_more": False,
+                "order": "oldest",
+            }
+        )
 
         # Call get_issue with comments
         result = jira_fetcher_with_real_preprocessor.get_issue(
