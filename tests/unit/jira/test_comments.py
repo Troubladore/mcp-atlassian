@@ -207,6 +207,91 @@ class TestCommentsMixin:
         assert result["has_more"] is True
         assert result["order"] == "oldest"
 
+    def test_get_issue_comments_newest_cloud(self, comments_mixin):
+        """Cloud newest order uses orderBy=-created."""
+        comments_mixin.jira.get = Mock(
+            return_value={
+                "comments": [
+                    {
+                        "id": "10003",
+                        "body": "Third",
+                        "created": "2024-01-03T10:00:00.000+0000",
+                        "updated": "2024-01-03T10:00:00.000+0000",
+                        "author": {"displayName": "User"},
+                    },
+                    {
+                        "id": "10002",
+                        "body": "Second",
+                        "created": "2024-01-02T10:00:00.000+0000",
+                        "updated": "2024-01-02T10:00:00.000+0000",
+                        "author": {"displayName": "User"},
+                    },
+                ],
+                "total": 3,
+                "startAt": 0,
+                "maxResults": 2,
+            }
+        )
+
+        result = comments_mixin.get_issue_comments("TEST-123", limit=2, order="newest")
+
+        call_args = comments_mixin.jira.get.call_args
+        assert call_args.kwargs["params"]["orderBy"] == "-created"
+        assert result["items"][0]["id"] == "10003"
+        assert result["order"] == "newest"
+        assert result["has_more"] is True
+
+    def test_get_issue_comments_with_offset(self, comments_mixin):
+        """Offset skips comments."""
+        comments_mixin.jira.get = Mock(
+            return_value={
+                "comments": [
+                    {
+                        "id": "10003",
+                        "body": "Third",
+                        "created": "2024-01-03T10:00:00.000+0000",
+                        "updated": "2024-01-03T10:00:00.000+0000",
+                        "author": {"displayName": "User"},
+                    },
+                ],
+                "total": 3,
+                "startAt": 2,
+                "maxResults": 10,
+            }
+        )
+
+        result = comments_mixin.get_issue_comments("TEST-123", limit=10, offset=2)
+
+        call_args = comments_mixin.jira.get.call_args
+        assert call_args.kwargs["params"]["startAt"] == 2
+        assert result["offset"] == 2
+        assert result["has_more"] is False
+
+    def test_get_issue_comments_has_more_true(self, comments_mixin):
+        """has_more is True when more comments exist beyond current page."""
+        comments_mixin.jira.get = Mock(
+            return_value={
+                "comments": [
+                    {
+                        "id": "10001",
+                        "body": "First",
+                        "created": "2024-01-01T10:00:00.000+0000",
+                        "updated": "2024-01-01T10:00:00.000+0000",
+                        "author": {"displayName": "User"},
+                    },
+                ],
+                "total": 50,
+                "startAt": 0,
+                "maxResults": 1,
+            }
+        )
+
+        result = comments_mixin.get_issue_comments("TEST-123", limit=1)
+
+        assert result["has_more"] is True
+        assert result["total"] == 50
+        assert result["returned"] == 1
+
     def test_add_comment_basic(self, comments_mixin):
         """Test add_comment with basic data (Cloud → ADF via v3 API)."""
         # Setup mock response for v3 API path
@@ -498,6 +583,54 @@ class TestCommentsMixin:
         comment_arg = call_args[0][2]
         assert isinstance(comment_arg, str)
         assert result["body"] == "h1. Updated"
+
+    def test_get_issue_comments_newest_server(self, server_comments_mixin):
+        """Server/DC newest order fetches from end and reverses."""
+        call_count = [0]
+
+        def mock_get(url, params=None):
+            call_count[0] += 1
+            if params and params.get("maxResults") == 0:
+                return {
+                    "comments": [],
+                    "total": 5,
+                    "startAt": 0,
+                    "maxResults": 0,
+                }
+            return {
+                "comments": [
+                    {
+                        "id": "10004",
+                        "body": "Fourth",
+                        "created": "2024-01-04T10:00:00.000+0000",
+                        "updated": "2024-01-04T10:00:00.000+0000",
+                        "author": {"displayName": "User"},
+                    },
+                    {
+                        "id": "10005",
+                        "body": "Fifth",
+                        "created": "2024-01-05T10:00:00.000+0000",
+                        "updated": "2024-01-05T10:00:00.000+0000",
+                        "author": {"displayName": "User"},
+                    },
+                ],
+                "total": 5,
+                "startAt": 3,
+                "maxResults": 2,
+            }
+
+        server_comments_mixin.jira.get = Mock(side_effect=mock_get)
+
+        result = server_comments_mixin.get_issue_comments(
+            "TEST-123", limit=2, order="newest"
+        )
+
+        assert call_count[0] == 2
+        assert result["items"][0]["id"] == "10005"
+        assert result["items"][1]["id"] == "10004"
+        assert result["order"] == "newest"
+        assert result["has_more"] is True
+        assert result["total"] == 5
 
     # --- ServiceDesk API (internal/public comments) tests ---
 
