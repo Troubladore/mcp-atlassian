@@ -3,6 +3,8 @@
 import logging
 from typing import Any
 
+from requests.exceptions import HTTPError
+
 from ..models.jira.adf import adf_to_text
 from ..utils import parse_date
 from .client import JiraClient
@@ -13,42 +15,154 @@ logger = logging.getLogger("mcp-jira")
 class CommentsMixin(JiraClient):
     """Mixin for Jira comment operations."""
 
+    def _process_raw_comment(self, comment: dict[str, Any]) -> dict[str, Any]:
+        """Process a raw Jira comment dict into a clean format."""
+        return {
+            "id": comment.get("id"),
+            "body": self._clean_text(comment.get("body", "")),
+            "created": str(parse_date(comment.get("created"))),
+            "updated": str(parse_date(comment.get("updated"))),
+            "author": comment.get("author", {}).get("displayName", "Unknown"),
+        }
+
     def get_issue_comments(
-        self, issue_key: str, limit: int = 50
-    ) -> list[dict[str, Any]]:
-        """
-        Get comments for a specific issue.
+        self,
+        issue_key: str,
+        limit: int = 50,
+        offset: int = 0,
+        order: str = "oldest",
+    ) -> dict[str, Any]:
+        """Get comments for a specific issue with pagination and ordering.
 
         Args:
             issue_key: The issue key (e.g. 'PROJ-123')
             limit: Maximum number of comments to return
+            offset: Number of comments to skip (after ordering)
+            order: Comment order — "oldest" or "newest"
 
         Returns:
-            List of comments with author, creation date, and content
+            Dict with items, total, returned, offset, has_more, order
 
         Raises:
             Exception: If there is an error getting comments
         """
         try:
-            comments = self.jira.issue_get_comments(issue_key)
+            if order == "newest" and not self.config.is_cloud:
+                return self._get_comments_newest_server(issue_key, limit, offset)
 
-            if not isinstance(comments, dict):
-                msg = f"Unexpected return value type from `jira.issue_get_comments`: {type(comments)}"
+            # Build query params for the comments endpoint
+            params: dict[str, Any] = {
+                "startAt": offset,
+                "maxResults": limit,
+            }
+            if self.config.is_cloud and order == "newest":
+                params["orderBy"] = "-created"
+            elif self.config.is_cloud:
+                params["orderBy"] = "created"
+
+            api_version = "3" if self.config.is_cloud else "2"
+            url = f"rest/api/{api_version}/issue/{issue_key}/comment"
+            response = self.jira.get(url, params=params)
+
+            if not isinstance(response, dict):
+                msg = f"Unexpected return value type from comment API: {type(response)}"
                 logger.error(msg)
                 raise TypeError(msg)
 
-            processed_comments = []
-            for comment in comments.get("comments", [])[:limit]:
-                processed_comment = {
-                    "id": comment.get("id"),
-                    "body": self._clean_text(comment.get("body", "")),
-                    "created": str(parse_date(comment.get("created"))),
-                    "updated": str(parse_date(comment.get("updated"))),
-                    "author": comment.get("author", {}).get("displayName", "Unknown"),
-                }
-                processed_comments.append(processed_comment)
+            raw_comments = response.get("comments", [])
+            total = response.get("total", len(raw_comments))
 
-            return processed_comments
+            processed = [self._process_raw_comment(c) for c in raw_comments]
+
+            returned = len(processed)
+            has_more = (offset + returned) < total
+
+            return {
+                "items": processed,
+                "total": total,
+                "returned": returned,
+                "offset": offset,
+                "has_more": has_more,
+                "order": order,
+            }
+        except Exception as e:
+            logger.error(f"Error getting comments for issue {issue_key}: {str(e)}")
+            raise Exception(f"Error getting comments: {str(e)}") from e
+
+    def _get_comments_newest_server(
+        self,
+        issue_key: str,
+        limit: int,
+        offset: int,
+    ) -> dict[str, Any]:
+        """Get newest comments on Server/DC (no orderBy support).
+
+        Server/DC API returns oldest-first only. To get newest-first:
+        1. Fetch total count with maxResults=0
+        2. Compute the correct startAt for the window we want
+        3. Fetch that window and reverse
+        """
+        try:
+            url = f"rest/api/2/issue/{issue_key}/comment"
+            count_response = self.jira.get(url, params={"startAt": 0, "maxResults": 0})
+            if not isinstance(count_response, dict):
+                msg = (
+                    "Unexpected return value type from "
+                    f"comment API: {type(count_response)}"
+                )
+                logger.error(msg)
+                raise TypeError(msg)
+            total = count_response.get("total", 0)
+
+            if total == 0:
+                return {
+                    "items": [],
+                    "total": 0,
+                    "returned": 0,
+                    "offset": offset,
+                    "has_more": False,
+                    "order": "newest",
+                }
+
+            start_at = max(0, total - offset - limit)
+            fetch_count = min(limit, total - offset)
+            if fetch_count <= 0:
+                return {
+                    "items": [],
+                    "total": total,
+                    "returned": 0,
+                    "offset": offset,
+                    "has_more": False,
+                    "order": "newest",
+                }
+
+            response = self.jira.get(
+                url,
+                params={
+                    "startAt": start_at,
+                    "maxResults": fetch_count,
+                },
+            )
+            if not isinstance(response, dict):
+                msg = f"Unexpected return value type from comment API: {type(response)}"
+                logger.error(msg)
+                raise TypeError(msg)
+
+            raw_comments = response.get("comments", [])
+            processed = [self._process_raw_comment(c) for c in raw_comments]
+
+            processed.reverse()
+            returned = len(processed)
+            has_more = (offset + returned) < total
+
+            return {
+                "items": processed,
+                "total": total,
+                "returned": returned,
+                "offset": offset,
+                "has_more": has_more,
+                "order": "newest",
+            }
         except Exception as e:
             logger.error(f"Error getting comments for issue {issue_key}: {str(e)}")
             raise Exception(f"Error getting comments: {str(e)}") from e
@@ -257,3 +371,47 @@ class CommentsMixin(JiraClient):
                 f"Error editing comment {comment_id} on issue {issue_key}: {str(e)}"
             )
             raise Exception(f"Error editing comment: {str(e)}") from e
+
+    def delete_comment(self, issue_key: str, comment_id: str) -> dict[str, Any]:
+        """Delete a comment from an issue.
+
+        Args:
+            issue_key: The issue key (e.g. 'PROJ-123')
+            comment_id: The ID of the comment to delete
+
+        Returns:
+            Confirmation dict with success status, issue_key, and comment_id
+
+        Raises:
+            Exception: If there is an error deleting the comment
+        """
+        try:
+            if self.config.is_cloud:
+                self._delete_api3(f"issue/{issue_key}/comment/{comment_id}")
+            else:
+                url = f"rest/api/2/issue/{issue_key}/comment/{comment_id}"
+                self.jira.delete(url)
+            return {
+                "success": True,
+                "issue_key": issue_key,
+                "comment_id": comment_id,
+            }
+        except HTTPError as http_err:
+            status_code = (
+                http_err.response.status_code if http_err.response is not None else None
+            )
+            if status_code == 404:
+                raise Exception(
+                    f"Comment {comment_id} not found on issue {issue_key}: {http_err}"
+                ) from http_err
+            if status_code == 403:
+                raise Exception(
+                    f"Permission denied deleting comment "
+                    f"{comment_id} on issue {issue_key}: {http_err}"
+                ) from http_err
+            raise
+        except Exception as e:
+            logger.error(
+                f"Error deleting comment {comment_id} on issue {issue_key}: {str(e)}"
+            )
+            raise Exception(f"Error deleting comment: {str(e)}") from e

@@ -5,6 +5,7 @@ import pytest
 from mcp_atlassian.jira.issues import IssuesMixin
 from mcp_atlassian.jira.protocols import (
     AttachmentsOperationsProto,
+    CommentOperationsProto,
     EpicOperationsProto,
     FieldsOperationsProto,
     IssueOperationsProto,
@@ -16,6 +17,7 @@ from mcp_atlassian.jira.protocols import (
 class ConcreteIssuesMixin(
     IssuesMixin,
     AttachmentsOperationsProto,
+    CommentOperationsProto,
     EpicOperationsProto,
     FieldsOperationsProto,
     IssueOperationsProto,
@@ -56,6 +58,9 @@ class ConcreteIssuesMixin(
         pass
 
     def upload_attachments(self, issue_key, attachment_paths):
+        pass
+
+    def get_issue_comments(self, issue_key, limit=50, offset=0, order="oldest"):
         pass
 
     def _format_field_value_for_write(self, field_id, value, field_definition):

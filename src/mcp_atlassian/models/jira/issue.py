@@ -71,6 +71,7 @@ class JiraIssue(ApiModel, TimestampMixin):
     labels: list[str] = Field(default_factory=list)
     components: list[str] = Field(default_factory=list)
     comments: list[JiraComment] = Field(default_factory=list)
+    comments_meta: dict[str, Any] | None = Field(default=None)
     attachments: list[JiraAttachment] = Field(default_factory=list)
     timetracking: JiraTimetracking | None = None
     url: str | None = None
@@ -385,6 +386,8 @@ class JiraIssue(ApiModel, TimestampMixin):
                     if comment
                 ]
 
+        comments_meta = fields.get("_comments_meta")
+
         # Handling changelogs
         changelogs = []
         changelogs_data = data.get("changelog", {})
@@ -473,6 +476,7 @@ class JiraIssue(ApiModel, TimestampMixin):
             labels=labels,
             components=components,
             comments=comments,
+            comments_meta=comments_meta,
             attachments=attachments,
             timetracking=timetracking,
             url=url,
@@ -597,6 +601,9 @@ class JiraIssue(ApiModel, TimestampMixin):
             result["comments"] = [
                 comment.to_simplified_dict() for comment in self.comments
             ]
+
+        if self.comments_meta is not None:
+            result["comments_meta"] = self.comments_meta
 
         # Add attachments if available and requested
         if self.attachments and should_include_field("attachment"):

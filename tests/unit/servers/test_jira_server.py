@@ -45,6 +45,8 @@ def mock_jira_fetcher():
         fields=None,
         expand=None,
         comment_limit=10,
+        comment_order="oldest",
+        comment_offset=0,
         properties=None,
         update_history=True,
     ):
@@ -566,6 +568,8 @@ async def test_get_issue(jira_client, mock_jira_fetcher):
         fields=["summary", "description", "status"],
         expand=None,
         comment_limit=10,
+        comment_order="oldest",
+        comment_offset=0,
         properties=None,
         update_history=True,
     )
@@ -961,6 +965,8 @@ async def test_get_issue_with_user_specific_fetcher_in_state(
         fields=expected_fields_list,
         expand=None,
         comment_limit=10,
+        comment_order="oldest",
+        comment_offset=0,
         properties=None,
         update_history=True,
     )
@@ -2648,6 +2654,8 @@ async def test_get_issue_use_display_names(jira_client, mock_jira_fetcher):
         fields=None,
         expand=None,
         comment_limit=10,
+        comment_order="oldest",
+        comment_offset=0,
         properties=None,
         update_history=True,
     ):

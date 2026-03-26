@@ -67,6 +67,8 @@ class IssueOperationsProto(Protocol):
         issue_key: str,
         expand: str | None = None,
         comment_limit: int | str | None = 10,
+        comment_order: str = "oldest",
+        comment_offset: int = 0,
         fields: str
         | list[str]
         | tuple[str, ...]
@@ -252,6 +254,20 @@ class UsersOperationsProto(Protocol):
         Raises:
             ValueError: If the account ID could not be found
         """
+
+
+class CommentOperationsProto(Protocol):
+    """Protocol defining comment operations interface."""
+
+    @abstractmethod
+    def get_issue_comments(
+        self,
+        issue_key: str,
+        limit: int = 50,
+        offset: int = 0,
+        order: str = "oldest",
+    ) -> dict[str, Any]:
+        """Get comments for a specific issue with pagination and ordering."""
 
 
 @runtime_checkable

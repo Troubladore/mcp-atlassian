@@ -334,6 +334,28 @@ async def get_issue(
             le=100,
         ),
     ] = 10,
+    comment_order: Annotated[
+        str,
+        Field(
+            description=(
+                "Comment ordering: 'oldest' (default, chronological) "
+                "or 'newest' (most recent first). Useful for getting "
+                "the latest comments on an issue."
+            ),
+            default="oldest",
+        ),
+    ] = "oldest",
+    comment_offset: Annotated[
+        int,
+        Field(
+            description=(
+                "Number of comments to skip (after ordering). "
+                "Use with comment_limit for pagination."
+            ),
+            default=0,
+            ge=0,
+        ),
+    ] = 0,
     properties: Annotated[
         str | None,
         Field(
@@ -388,6 +410,8 @@ async def get_issue(
         fields: Comma-separated fields to return.
         expand: Optional fields to expand.
         comment_limit: Maximum number of comments.
+        comment_order: Comment ordering ('oldest' or 'newest').
+        comment_offset: Number of comments to skip.
         properties: Issue properties to return.
         update_history: Whether to update issue view history.
         include: Comma-separated enrichment sections to inline.
@@ -431,6 +455,8 @@ async def get_issue(
         fields=fields_list,
         expand=expand,
         comment_limit=comment_limit,
+        comment_order=comment_order,
+        comment_offset=comment_offset,
         properties=properties.split(",") if properties else None,
         update_history=update_history,
     )
@@ -1972,6 +1998,40 @@ async def edit_comment(
     jira = await get_jira_fetcher(ctx)
     visibility_dict = _parse_visibility(visibility)
     result = jira.edit_comment(issue_key, comment_id, body, visibility_dict)
+    return json.dumps(result, indent=2, ensure_ascii=False)
+
+
+@jira_mcp.tool(
+    tags={"jira", "write", "toolset:jira_comments"},
+    annotations={"title": "Delete Comment", "readOnlyHint": False},
+)
+@check_write_access
+async def delete_comment(
+    ctx: Context,
+    issue_key: Annotated[
+        str,
+        Field(
+            description="Jira issue key (e.g., 'PROJ-123', 'ACV2-642')",
+            pattern=ISSUE_KEY_PATTERN,
+        ),
+    ],
+    comment_id: Annotated[str, Field(description="The ID of the comment to delete")],
+) -> str:
+    """Delete a comment from a Jira issue.
+
+    Args:
+        ctx: The FastMCP context.
+        issue_key: Jira issue key.
+        comment_id: The ID of the comment to delete.
+
+    Returns:
+        JSON string indicating success.
+
+    Raises:
+        ValueError: If in read-only mode or Jira client unavailable.
+    """
+    jira = await get_jira_fetcher(ctx)
+    result = jira.delete_comment(issue_key, comment_id)
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
