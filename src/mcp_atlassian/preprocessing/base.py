@@ -12,6 +12,10 @@ from markdownify import markdownify as md
 
 logger = logging.getLogger("mcp-atlassian")
 
+# Pseudo-link scheme for encoding Confluence user mentions in markdown.
+# Read path (base.py) writes these; write path (confluence.py) parses them.
+CONFLUENCE_USER_SCHEME = "confluence-user"
+
 
 def _extract_blocks(
     text: str,
@@ -147,11 +151,20 @@ class BasePreprocessor:
         for user_element in user_mentions:
             user_ref = user_element.find("ri:user")
             if user_ref and user_ref.get("ri:account-id"):
-                # Case 1: Direct user reference without link-body
+                # Case 1a: Direct user reference with account-id (Cloud)
                 account_id = user_ref.get("ri:account-id")
                 if isinstance(account_id, str):
                     self._replace_user_mention(
                         user_element, account_id, confluence_client
+                    )
+                    continue
+
+            if user_ref and user_ref.get("ri:userkey"):
+                # Case 1b: Server/DC user reference with userkey
+                userkey = user_ref.get("ri:userkey")
+                if isinstance(userkey, str):
+                    self._replace_user_mention_by_userkey(
+                        user_element, userkey, confluence_client
                     )
                     continue
 
@@ -164,6 +177,13 @@ class BasePreprocessor:
                     if isinstance(account_id, str):
                         self._replace_user_mention(
                             user_element, account_id, confluence_client
+                        )
+                        continue
+                if user_ref and user_ref.get("ri:userkey"):
+                    userkey = user_ref.get("ri:userkey")
+                    if isinstance(userkey, str):
+                        self._replace_user_mention_by_userkey(
+                            user_element, userkey, confluence_client
                         )
 
     def _process_user_profile_macros_in_soup(
@@ -227,18 +247,36 @@ class BasePreprocessor:
                     "Confluence client not available for User Profile Macro processing."
                 )
 
-            if display_name:
-                replacement_text = f"@{display_name}"
-                macro_element.replace_with(replacement_text)
-            else:
-                fallback_identifier = (
-                    user_identifier_for_log
-                    if user_identifier_for_log
-                    else "unknown_user"
+            id_type = "accountId" if account_id else "userKey"
+            identifier = account_id or userkey
+
+            if display_name and identifier:
+                macro_element.replace_with(
+                    self._create_user_link_tag(id_type, identifier, display_name)
                 )
-                fallback_text = f"[User Profile: {fallback_identifier}]"
-                macro_element.replace_with(fallback_text)
-                logger.debug(f"Using fallback for user profile macro: {fallback_text}")
+            elif identifier:
+                macro_element.replace_with(
+                    self._create_user_link_tag(id_type, identifier, identifier)
+                )
+                logger.debug(f"Using fallback for user profile macro: {identifier}")
+            else:
+                macro_element.replace_with("[User Profile Macro (Unknown)]")
+
+    @staticmethod
+    def _create_user_link_tag(id_type: str, id_value: str, display_text: str) -> Tag:
+        """Create a user mention pseudo-link tag.
+
+        Args:
+            id_type: "accountId" or "userKey"
+            id_value: The user's identifier
+            display_text: Text to display (without @ prefix)
+        """
+        link_tag = Tag(
+            name="a",
+            attrs={"href": f"{CONFLUENCE_USER_SCHEME}:{id_type}/{id_value}"},
+        )
+        link_tag.string = f"@{display_text}"
+        return link_tag
 
     def _replace_user_mention(
         self,
@@ -246,43 +284,55 @@ class BasePreprocessor:
         account_id: str,
         confluence_client: ConfluenceClient | None = None,
     ) -> None:
-        """
-        Replace a user mention with the user's display name.
-
-        Args:
-            user_element: The HTML element containing the user mention
-            account_id: The user's account ID
-            confluence_client: Optional Confluence client for user lookups
-        """
+        """Replace a user mention (Cloud account-id) with a pseudo-link."""
         try:
-            # Only attempt to get user details if we have a valid confluence client
             if confluence_client is not None:
                 user_details = confluence_client.get_user_details_by_accountid(
                     account_id
                 )
                 display_name = user_details.get("displayName", "")
                 if display_name:
-                    new_text = f"@{display_name}"
-                    user_element.replace_with(new_text)
+                    user_element.replace_with(
+                        self._create_user_link_tag(
+                            "accountId", account_id, display_name
+                        )
+                    )
                     return
-            # If we don't have a confluence client or couldn't get user details,
-            # use fallback
-            self._use_fallback_user_mention(user_element, account_id)
+            user_element.replace_with(
+                self._create_user_link_tag(
+                    "accountId", account_id, f"user_{account_id}"
+                )
+            )
         except Exception as e:
             logger.warning(f"Error processing user mention: {str(e)}")
-            self._use_fallback_user_mention(user_element, account_id)
+            user_element.replace_with(
+                self._create_user_link_tag(
+                    "accountId", account_id, f"user_{account_id}"
+                )
+            )
 
-    def _use_fallback_user_mention(self, user_element: Tag, account_id: str) -> None:
-        """
-        Replace user mention with a fallback when the API call fails.
+    def _replace_user_mention_by_userkey(
+        self,
+        user_element: Tag,
+        userkey: str,
+        confluence_client: ConfluenceClient | None = None,
+    ) -> None:
+        """Replace a user mention (Server/DC userkey) with a pseudo-link."""
+        try:
+            display_name = None
+            if confluence_client is not None:
+                user_details = confluence_client.get_user_details_by_username(userkey)
+                display_name = user_details.get("displayName", "")
 
-        Args:
-            user_element: The HTML element containing the user mention
-            account_id: The user's account ID
-        """
-        # Fallback: just use the account ID
-        new_text = f"@user_{account_id}"
-        user_element.replace_with(new_text)
+            name = display_name if display_name else f"user_{userkey}"
+            user_element.replace_with(
+                self._create_user_link_tag("userKey", userkey, name)
+            )
+        except Exception as e:
+            logger.warning(f"Error processing user mention: {str(e)}")
+            user_element.replace_with(
+                self._create_user_link_tag("userKey", userkey, f"user_{userkey}")
+            )
 
     def _find_attachment_url(
         self,

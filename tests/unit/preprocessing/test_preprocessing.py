@@ -112,8 +112,36 @@ def test_process_html_content_with_user_mentions(preprocessor_with_confluence):
         )
     )
 
-    assert "@Test User 123456" in processed_html
-    assert "@Test User 123456" in processed_markdown
+    assert 'href="confluence-user:accountId/123456"' in processed_html
+    assert "[@Test User 123456](confluence-user:accountId/123456)" in processed_markdown
+
+
+def test_mention_preserves_account_id_as_pseudo_link(preprocessor_with_confluence):
+    """Mentions should emit markdown pseudo-links preserving the account ID."""
+    html = """
+    <ac:link>
+        <ri:user ri:account-id="abc123"/>
+    </ac:link>
+    """
+    _, processed_markdown = preprocessor_with_confluence.process_html_content(
+        html, confluence_client=MockConfluenceClient()
+    )
+
+    assert "[@Test User abc123](confluence-user:accountId/abc123)" in processed_markdown
+
+
+def test_mention_preserves_userkey_as_pseudo_link(preprocessor_with_confluence):
+    """Server/DC mentions with ri:userkey emit pseudo-links."""
+    html = """
+    <ac:link>
+        <ri:user ri:userkey="jsmith"/>
+    </ac:link>
+    """
+    _, processed_markdown = preprocessor_with_confluence.process_html_content(
+        html, confluence_client=MockConfluenceClient()
+    )
+
+    assert "[@Test User jsmith](confluence-user:userKey/jsmith)" in processed_markdown
 
 
 def test_clean_jira_text_empty(preprocessor_with_jira):
@@ -461,8 +489,38 @@ def test_process_confluence_profile_macro_fallback():
     processed_html, processed_markdown = preprocessor.process_html_content(
         html, confluence_client=None
     )
-    assert "[User Profile: user999]" in processed_html
-    assert "[User Profile: user999]" in processed_markdown
+    assert 'href="confluence-user:accountId/user999"' in processed_html
+    assert "[@user999](confluence-user:accountId/user999)" in processed_markdown
+
+
+def test_profile_macro_preserves_account_id_as_pseudo_link():
+    """Profile macros should emit pseudo-links preserving the account ID."""
+    from mcp_atlassian.preprocessing.confluence import ConfluencePreprocessor
+
+    html = (
+        "<p>Assigned to "
+        '<ac:structured-macro ac:name="profile" ac:schema-version="1">'
+        '<ac:parameter ac:name="user">'
+        '<ri:user ri:account-id="prof-acct-123" />'
+        "</ac:parameter>"
+        "</ac:structured-macro>.</p>"
+    )
+
+    class CustomMock:
+        def get_user_details_by_accountid(self, account_id):
+            return {"displayName": "Profile User"}
+
+        def get_user_details_by_username(self, username):
+            return {}
+
+    preprocessor = ConfluencePreprocessor(base_url="https://example.atlassian.net")
+    _, processed_markdown = preprocessor.process_html_content(
+        html, confluence_client=CustomMock()
+    )
+
+    assert (
+        "[@Profile User](confluence-user:accountId/prof-acct-123)" in processed_markdown
+    )
 
 
 def test_process_user_profile_macro_multiple():
@@ -504,10 +562,16 @@ def test_process_user_profile_macro_multiple():
     processed_html, processed_markdown = preprocessor.process_html_content(
         html, confluence_client=CustomMockConfluenceClient()
     )
-    assert "@Test User One" in processed_html
-    assert "@Test User Two" in processed_html
-    assert "@Test User One" in processed_markdown
-    assert "@Test User Two" in processed_markdown
+    assert 'href="confluence-user:accountId/test-account-id-123"' in processed_html
+    assert 'href="confluence-user:userKey/test-userkey-456"' in processed_html
+    assert (
+        "[@Test User One](confluence-user:accountId/test-account-id-123)"
+        in processed_markdown
+    )
+    assert (
+        "[@Test User Two](confluence-user:userKey/test-userkey-456)"
+        in processed_markdown
+    )
 
 
 def test_markdown_to_confluence_no_automatic_anchors():
@@ -1488,3 +1552,122 @@ class TestHtmlConversionCodeProtection:
         """Direct test of _convert_html_to_markdown with markdown code spans."""
         result = preprocessor._convert_html_to_markdown(md_input)
         assert expected_substr in result, f"Expected '{expected_substr}' in: {result!r}"
+
+
+def test_markdown_to_storage_reconstructs_account_id_mention():
+    """Pseudo-link mentions should be reconstructed as Confluence storage XML."""
+    from mcp_atlassian.preprocessing.confluence import ConfluencePreprocessor
+
+    markdown = "Assigned to [@John Smith](confluence-user:accountId/abc123)."
+    preprocessor = ConfluencePreprocessor(base_url="https://example.atlassian.net")
+    storage = preprocessor.markdown_to_confluence_storage(markdown)
+
+    assert 'ri:account-id="abc123"' in storage
+    assert "<ac:link>" in storage
+    assert "John Smith" in storage
+
+
+def test_markdown_to_storage_reconstructs_userkey_mention():
+    """Pseudo-link mentions with userKey should reconstruct ri:userkey."""
+    from mcp_atlassian.preprocessing.confluence import ConfluencePreprocessor
+
+    markdown = "Assigned to [@Jane Doe](confluence-user:userKey/jdoe)."
+    preprocessor = ConfluencePreprocessor(base_url="https://example.atlassian.net")
+    storage = preprocessor.markdown_to_confluence_storage(markdown)
+
+    assert 'ri:userkey="jdoe"' in storage
+    assert "<ac:link>" in storage
+    assert "Jane Doe" in storage
+
+
+def test_mention_round_trip_preserves_identity():
+    """Storage->markdown->storage should preserve the user account ID."""
+    storage_input = (
+        "<p>Check with "
+        '<ac:link><ri:user ri:account-id="round-trip-id"/>'
+        "<ac:link-body>@Round Trip User</ac:link-body></ac:link>"
+        " about this.</p>"
+    )
+
+    preprocessor = ConfluencePreprocessor(base_url="https://example.atlassian.net")
+
+    # Read: storage -> markdown
+    _, markdown = preprocessor.process_html_content(
+        storage_input, confluence_client=MockConfluenceClient()
+    )
+
+    # The markdown should contain the pseudo-link
+    assert "confluence-user:accountId/round-trip-id" in markdown
+
+    # Write: markdown -> storage
+    storage_output = preprocessor.markdown_to_confluence_storage(markdown)
+
+    # The storage should have the account ID back
+    assert 'ri:account-id="round-trip-id"' in storage_output
+
+
+def test_plain_at_mention_passes_through_on_write():
+    """Plain @Name text (no pseudo-link) should not be converted to a mention."""
+    markdown = "Talk to @John Smith about this."
+    preprocessor = ConfluencePreprocessor(base_url="https://example.atlassian.net")
+    storage = preprocessor.markdown_to_confluence_storage(markdown)
+
+    # Should NOT contain any ri:user or ac:link
+    assert "ri:user" not in storage
+    assert "ri:account-id" not in storage
+    assert "@John Smith" in storage
+
+
+def test_mention_with_bold_formatting_round_trips():
+    """Bold-wrapped mentions should preserve identity through round-trip."""
+    markdown = "Assigned to **[@John Smith](confluence-user:accountId/bold-test-id)**."
+    preprocessor = ConfluencePreprocessor(base_url="https://example.atlassian.net")
+    storage = preprocessor.markdown_to_confluence_storage(markdown)
+
+    assert 'ri:account-id="bold-test-id"' in storage
+
+
+def test_normal_links_not_affected_by_mention_reconstruction():
+    """Regular markdown links should pass through unchanged."""
+    markdown = "See [the docs](https://example.com/docs) for details."
+    preprocessor = ConfluencePreprocessor(base_url="https://example.atlassian.net")
+    storage = preprocessor.markdown_to_confluence_storage(markdown)
+
+    assert "example.com/docs" in storage
+    assert "ri:user" not in storage
+
+
+def test_malformed_pseudo_links_ignored_on_write():
+    """Malformed confluence-user: links should pass through unchanged."""
+    preprocessor = ConfluencePreprocessor(base_url="https://example.atlassian.net")
+
+    # Missing slash separator
+    storage = preprocessor.markdown_to_confluence_storage(
+        "See [@Bad](confluence-user:badformat) here."
+    )
+    assert "ri:user" not in storage
+
+    # Unknown id type
+    storage = preprocessor.markdown_to_confluence_storage(
+        "See [@Bad](confluence-user:unknownType/abc) here."
+    )
+    assert "ri:user" not in storage
+
+
+def test_profile_macro_userkey_fallback_without_lookup():
+    """Profile macro with ri:userkey and no client falls back to pseudo-link with identifier."""
+    html = (
+        "<p>Mentioned "
+        '<ac:structured-macro ac:name="profile" ac:schema-version="1">'
+        '<ac:parameter ac:name="user">'
+        '<ri:user ri:userkey="serveruser42" />'
+        "</ac:parameter>"
+        "</ac:structured-macro>.</p>"
+    )
+
+    preprocessor = ConfluencePreprocessor(base_url="https://example.atlassian.net")
+    _, processed_markdown = preprocessor.process_html_content(
+        html, confluence_client=None
+    )
+
+    assert "[@serveruser42](confluence-user:userKey/serveruser42)" in processed_markdown
