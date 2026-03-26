@@ -3,6 +3,7 @@
 from unittest.mock import Mock
 
 import pytest
+from requests.exceptions import HTTPError
 
 from mcp_atlassian.jira.comments import CommentsMixin
 
@@ -749,18 +750,20 @@ class TestCommentsMixin:
 
     def test_delete_comment_not_found(self, comments_mixin):
         """Test delete_comment raises on 404."""
-        comments_mixin._delete_api3 = Mock(
-            side_effect=Exception("404 Client Error: Not Found")
-        )
+        mock_response = Mock()
+        mock_response.status_code = 404
+        http_err = HTTPError(response=mock_response)
+        comments_mixin._delete_api3 = Mock(side_effect=http_err)
 
         with pytest.raises(Exception, match="not found"):
             comments_mixin.delete_comment("TEST-123", "99999")
 
     def test_delete_comment_forbidden(self, comments_mixin):
         """Test delete_comment raises on 403."""
-        comments_mixin._delete_api3 = Mock(
-            side_effect=Exception("403 Client Error: Forbidden")
-        )
+        mock_response = Mock()
+        mock_response.status_code = 403
+        http_err = HTTPError(response=mock_response)
+        comments_mixin._delete_api3 = Mock(side_effect=http_err)
 
         with pytest.raises(Exception, match="Permission denied"):
             comments_mixin.delete_comment("TEST-123", "10001")

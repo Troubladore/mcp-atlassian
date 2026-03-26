@@ -3,6 +3,8 @@
 import logging
 from typing import Any
 
+from requests.exceptions import HTTPError
+
 from ..models.jira.adf import adf_to_text
 from ..utils import parse_date
 from .client import JiraClient
@@ -12,6 +14,16 @@ logger = logging.getLogger("mcp-jira")
 
 class CommentsMixin(JiraClient):
     """Mixin for Jira comment operations."""
+
+    def _process_raw_comment(self, comment: dict[str, Any]) -> dict[str, Any]:
+        """Process a raw Jira comment dict into a clean format."""
+        return {
+            "id": comment.get("id"),
+            "body": self._clean_text(comment.get("body", "")),
+            "created": str(parse_date(comment.get("created"))),
+            "updated": str(parse_date(comment.get("updated"))),
+            "author": comment.get("author", {}).get("displayName", "Unknown"),
+        }
 
     def get_issue_comments(
         self,
@@ -60,19 +72,7 @@ class CommentsMixin(JiraClient):
             raw_comments = response.get("comments", [])
             total = response.get("total", len(raw_comments))
 
-            processed = []
-            for comment in raw_comments:
-                processed.append(
-                    {
-                        "id": comment.get("id"),
-                        "body": self._clean_text(comment.get("body", "")),
-                        "created": str(parse_date(comment.get("created"))),
-                        "updated": str(parse_date(comment.get("updated"))),
-                        "author": comment.get("author", {}).get(
-                            "displayName", "Unknown"
-                        ),
-                    }
-                )
+            processed = [self._process_raw_comment(c) for c in raw_comments]
 
             returned = len(processed)
             has_more = (offset + returned) < total
@@ -149,19 +149,7 @@ class CommentsMixin(JiraClient):
                 raise TypeError(msg)
 
             raw_comments = response.get("comments", [])
-            processed = []
-            for comment in raw_comments:
-                processed.append(
-                    {
-                        "id": comment.get("id"),
-                        "body": self._clean_text(comment.get("body", "")),
-                        "created": str(parse_date(comment.get("created"))),
-                        "updated": str(parse_date(comment.get("updated"))),
-                        "author": comment.get("author", {}).get(
-                            "displayName", "Unknown"
-                        ),
-                    }
-                )
+            processed = [self._process_raw_comment(c) for c in raw_comments]
 
             processed.reverse()
             returned = len(processed)
@@ -408,18 +396,22 @@ class CommentsMixin(JiraClient):
                 "issue_key": issue_key,
                 "comment_id": comment_id,
             }
-        except Exception as e:
-            error_msg = str(e)
-            if "404" in error_msg or "not found" in error_msg.lower():
-                raise Exception(
-                    f"Comment {comment_id} not found on issue {issue_key}: {error_msg}"
-                ) from e
-            if "403" in error_msg or "forbidden" in error_msg.lower():
-                raise Exception(
-                    f"Permission denied deleting comment {comment_id} "
-                    f"on issue {issue_key}: {error_msg}"
-                ) from e
-            logger.error(
-                f"Error deleting comment {comment_id} on issue {issue_key}: {error_msg}"
+        except HTTPError as http_err:
+            status_code = (
+                http_err.response.status_code if http_err.response is not None else None
             )
-            raise Exception(f"Error deleting comment: {error_msg}") from e
+            if status_code == 404:
+                raise Exception(
+                    f"Comment {comment_id} not found on issue {issue_key}: {http_err}"
+                ) from http_err
+            if status_code == 403:
+                raise Exception(
+                    f"Permission denied deleting comment "
+                    f"{comment_id} on issue {issue_key}: {http_err}"
+                ) from http_err
+            raise
+        except Exception as e:
+            logger.error(
+                f"Error deleting comment {comment_id} on issue {issue_key}: {str(e)}"
+            )
+            raise Exception(f"Error deleting comment: {str(e)}") from e

@@ -348,10 +348,16 @@ class IssuesMixin(
         """
         if comment_limit is None or comment_limit > 0:
             try:
-                limit = comment_limit if comment_limit is not None else 5000
-                return self.get_issue_comments(
+                if comment_limit is not None:
+                    return self.get_issue_comments(
+                        issue_key,
+                        limit=comment_limit,
+                        offset=comment_offset,
+                        order=comment_order,
+                    )
+                # comment_limit is None ("all") — page until exhaustion
+                return self._fetch_all_comments(
                     issue_key,
-                    limit=limit,
                     offset=comment_offset,
                     order=comment_order,
                 )
@@ -372,6 +378,41 @@ class IssuesMixin(
             "offset": 0,
             "has_more": False,
             "order": comment_order,
+        }
+
+    def _fetch_all_comments(
+        self,
+        issue_key: str,
+        offset: int = 0,
+        order: str = "oldest",
+    ) -> dict[str, Any]:
+        """Fetch all comments by paging until exhaustion.
+
+        Used when comment_limit="all" to preserve true "all" semantics.
+        """
+        all_items: list[dict[str, Any]] = []
+        page_size = 100
+        current_offset = offset
+
+        while True:
+            page = self.get_issue_comments(
+                issue_key,
+                limit=page_size,
+                offset=current_offset,
+                order=order,
+            )
+            all_items.extend(page["items"])
+            if not page["has_more"]:
+                break
+            current_offset += page["returned"]
+
+        return {
+            "items": all_items,
+            "total": page["total"],
+            "returned": len(all_items),
+            "offset": offset,
+            "has_more": False,
+            "order": order,
         }
 
     def _extract_epic_information(self, issue: dict) -> dict[str, str | None]:

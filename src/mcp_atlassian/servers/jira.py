@@ -2003,7 +2003,7 @@ async def edit_comment(
 
 @jira_mcp.tool(
     tags={"jira", "write", "toolset:jira_comments"},
-    annotations={"title": "Delete Comment", "destructiveHint": True},
+    annotations={"title": "Delete Comment", "readOnlyHint": False},
 )
 @check_write_access
 async def delete_comment(
