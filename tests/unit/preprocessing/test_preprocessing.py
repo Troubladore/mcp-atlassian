@@ -130,6 +130,20 @@ def test_mention_preserves_account_id_as_pseudo_link(preprocessor_with_confluenc
     assert "[@Test User abc123](confluence-user:accountId/abc123)" in processed_markdown
 
 
+def test_mention_preserves_userkey_as_pseudo_link(preprocessor_with_confluence):
+    """Server/DC mentions with ri:userkey emit pseudo-links."""
+    html = """
+    <ac:link>
+        <ri:user ri:userkey="jsmith"/>
+    </ac:link>
+    """
+    _, processed_markdown = preprocessor_with_confluence.process_html_content(
+        html, confluence_client=MockConfluenceClient()
+    )
+
+    assert "[@Test User jsmith](confluence-user:userKey/jsmith)" in processed_markdown
+
+
 def test_clean_jira_text_empty(preprocessor_with_jira):
     """Test cleaning empty Jira text."""
     assert preprocessor_with_jira.clean_jira_text("") == ""

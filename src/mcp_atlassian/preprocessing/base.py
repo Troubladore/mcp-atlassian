@@ -147,11 +147,20 @@ class BasePreprocessor:
         for user_element in user_mentions:
             user_ref = user_element.find("ri:user")
             if user_ref and user_ref.get("ri:account-id"):
-                # Case 1: Direct user reference without link-body
+                # Case 1a: Direct user reference with account-id (Cloud)
                 account_id = user_ref.get("ri:account-id")
                 if isinstance(account_id, str):
                     self._replace_user_mention(
                         user_element, account_id, confluence_client
+                    )
+                    continue
+
+            if user_ref and user_ref.get("ri:userkey"):
+                # Case 1b: Server/DC user reference with userkey
+                userkey = user_ref.get("ri:userkey")
+                if isinstance(userkey, str):
+                    self._replace_user_mention_by_userkey(
+                        user_element, userkey, confluence_client
                     )
                     continue
 
@@ -164,6 +173,13 @@ class BasePreprocessor:
                     if isinstance(account_id, str):
                         self._replace_user_mention(
                             user_element, account_id, confluence_client
+                        )
+                        continue
+                if user_ref and user_ref.get("ri:userkey"):
+                    userkey = user_ref.get("ri:userkey")
+                    if isinstance(userkey, str):
+                        self._replace_user_mention_by_userkey(
+                            user_element, userkey, confluence_client
                         )
 
     def _process_user_profile_macros_in_soup(
@@ -291,6 +307,41 @@ class BasePreprocessor:
         )
         link_tag.string = f"@user_{account_id}"
         user_element.replace_with(link_tag)
+
+    def _replace_user_mention_by_userkey(
+        self,
+        user_element: Tag,
+        userkey: str,
+        confluence_client: ConfluenceClient | None = None,
+    ) -> None:
+        """Replace a user mention (Server/DC userkey) with a pseudo-link.
+
+        Args:
+            user_element: The HTML element containing the user mention
+            userkey: The user's key (Server/DC)
+            confluence_client: Optional Confluence client for user lookups
+        """
+        try:
+            display_name = None
+            if confluence_client is not None:
+                user_details = confluence_client.get_user_details_by_username(userkey)
+                display_name = user_details.get("displayName", "")
+
+            name = display_name if display_name else f"user_{userkey}"
+            link_tag = Tag(
+                name="a",
+                attrs={"href": f"confluence-user:userKey/{userkey}"},
+            )
+            link_tag.string = f"@{name}"
+            user_element.replace_with(link_tag)
+        except Exception as e:
+            logger.warning(f"Error processing user mention: {str(e)}")
+            link_tag = Tag(
+                name="a",
+                attrs={"href": f"confluence-user:userKey/{userkey}"},
+            )
+            link_tag.string = f"@user_{userkey}"
+            user_element.replace_with(link_tag)
 
     def _find_attachment_url(
         self,
