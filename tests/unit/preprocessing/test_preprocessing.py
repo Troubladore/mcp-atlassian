@@ -1552,3 +1552,29 @@ class TestHtmlConversionCodeProtection:
         """Direct test of _convert_html_to_markdown with markdown code spans."""
         result = preprocessor._convert_html_to_markdown(md_input)
         assert expected_substr in result, f"Expected '{expected_substr}' in: {result!r}"
+
+
+def test_markdown_to_storage_reconstructs_account_id_mention():
+    """Pseudo-link mentions should be reconstructed as Confluence storage XML."""
+    from mcp_atlassian.preprocessing.confluence import ConfluencePreprocessor
+
+    markdown = "Assigned to [@John Smith](confluence-user:accountId/abc123)."
+    preprocessor = ConfluencePreprocessor(base_url="https://example.atlassian.net")
+    storage = preprocessor.markdown_to_confluence_storage(markdown)
+
+    assert 'ri:account-id="abc123"' in storage
+    assert "<ac:link>" in storage
+    assert "John Smith" in storage
+
+
+def test_markdown_to_storage_reconstructs_userkey_mention():
+    """Pseudo-link mentions with userKey should reconstruct ri:userkey."""
+    from mcp_atlassian.preprocessing.confluence import ConfluencePreprocessor
+
+    markdown = "Assigned to [@Jane Doe](confluence-user:userKey/jdoe)."
+    preprocessor = ConfluencePreprocessor(base_url="https://example.atlassian.net")
+    storage = preprocessor.markdown_to_confluence_storage(markdown)
+
+    assert 'ri:userkey="jdoe"' in storage
+    assert "<ac:link>" in storage
+    assert "Jane Doe" in storage

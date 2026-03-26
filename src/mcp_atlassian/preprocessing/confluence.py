@@ -49,6 +49,64 @@ class ConfluencePreprocessor(BasePreprocessor):
         "default": "default",
     }
 
+    # Confluence XML namespace URIs used by md2conf for element construction.
+    _AC_NS = "http://atlassian.com/content"
+    _RI_NS = "http://atlassian.com/resource/identifier"
+
+    @staticmethod
+    def _reconstruct_mentions(root: "lxml.etree._Element") -> None:  # type: ignore[name-defined]  # noqa: F821
+        """Replace pseudo-link anchors with Confluence mention storage XML.
+
+        Walks the element tree for <a href="confluence-user:..."> nodes
+        and replaces them with <ac:link><ri:user .../></ac:link>.
+
+        Must be called AFTER elements_from_string() and BEFORE
+        converter.visit() to intercept pseudo-links before md2conf's
+        generic link transformer processes them.
+        """
+        from lxml import etree
+
+        ac_ns = ConfluencePreprocessor._AC_NS
+        ri_ns = ConfluencePreprocessor._RI_NS
+
+        for parent in root.iter():
+            children = list(parent)
+            for i, child in enumerate(children):
+                if child.tag != "a":
+                    continue
+                href = child.get("href", "")
+                if not href.startswith("confluence-user:"):
+                    continue
+
+                # Parse: confluence-user:accountId/XXX or confluence-user:userKey/XXX
+                remainder = href[len("confluence-user:") :]
+                if "/" not in remainder:
+                    continue
+                id_type, id_value = remainder.split("/", 1)
+
+                # Build Confluence storage XML using lxml with proper namespaces
+                ac_link = etree.Element(etree.QName(ac_ns, "link"))
+                ri_user = etree.SubElement(ac_link, etree.QName(ri_ns, "user"))
+                if id_type == "accountId":
+                    ri_user.set(etree.QName(ri_ns, "account-id"), id_value)
+                elif id_type == "userKey":
+                    ri_user.set(etree.QName(ri_ns, "userkey"), id_value)
+                else:
+                    continue
+
+                # Add link body with display text
+                display_text = child.text or ""
+                ac_link_body = etree.SubElement(
+                    ac_link, etree.QName(ac_ns, "link-body")
+                )
+                ac_link_body.text = display_text
+
+                # Preserve trailing text after the link
+                ac_link.tail = child.tail
+
+                # Replace the <a> node in parent's children
+                parent[i] = ac_link
+
     def markdown_to_confluence_storage(
         self,
         markdown_content: str,
@@ -84,6 +142,9 @@ class ConfluencePreprocessor(BasePreprocessor):
             try:
                 # Parse the HTML into an element tree
                 root = elements_from_string(html_content)
+
+                # Reconstruct Confluence mentions from pseudo-links
+                self._reconstruct_mentions(root)
 
                 # Create converter options
                 options = ConfluenceConverterOptions(
