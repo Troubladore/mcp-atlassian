@@ -42,21 +42,32 @@ EOF
 chmod 600 ~/.config/mcp-atlassian/.env
 ```
 
-### Step 2: Register the MCP Server
+### Step 2: Install the Launcher (Standalone)
+
+Copy the launcher script and proxy directory to the config directory so it works
+independently of any git branch or clone:
 
 ```bash
-claude mcp add --scope user atlassian -- /path/to/docs/mcpb-extension/claude-code-launcher.sh
+cp docs/mcpb-extension/claude-code-launcher.sh ~/.config/mcp-atlassian/
+cp -r docs/mcpb-extension/proxy ~/.config/mcp-atlassian/
+chmod 700 ~/.config/mcp-atlassian/claude-code-launcher.sh
+```
+
+### Step 3: Register the MCP Server
+
+```bash
+claude mcp add --scope user atlassian -- ~/.config/mcp-atlassian/claude-code-launcher.sh
 ```
 
 This adds the server to `~/.claude.json` at user scope (available in all projects).
 
-### Step 3: Pull the Docker Image
+### Step 4: Pull the Docker Image
 
 ```bash
-docker pull ghcr.io/troubladore/mcp-atlassian:v0.11.16
+docker pull ghcr.io/troubladore/mcp-atlassian:v0.20.1
 ```
 
-### Step 4: Verify
+### Step 5: Verify
 
 Start a new Claude Code session (or run `/mcp` to reconnect), then ask Claude to list your Jira projects or search Confluence.
 
@@ -69,7 +80,7 @@ The launcher script performs pre-flight checks and prints diagnostics to stderr.
 docker info >/dev/null 2>&1 && echo "OK" || echo "FAIL: Start Docker Desktop"
 
 # 2. Run the launcher manually to see errors
-timeout 10 bash /path/to/claude-code-launcher.sh 2>&1
+timeout 10 bash ~/.config/mcp-atlassian/claude-code-launcher.sh 2>&1
 
 # 3. Is the proxy healthy?
 docker ps --filter name=eruditis-atlassian-proxy
@@ -114,7 +125,7 @@ The `.mcpb` extension bundles a Node.js wrapper that manages Docker containers.
 Open a terminal and run:
 
 ```bash
-docker pull ghcr.io/troubladore/mcp-atlassian:v0.11.10
+docker pull ghcr.io/troubladore/mcp-atlassian:v0.20.1
 ```
 
 This ensures the Docker image is available before you try to use the extension.
@@ -222,7 +233,7 @@ docker run --rm -i \
   -e JIRA_URL=https://eruditis.atlassian.net \
   -e JIRA_USERNAME=you@gmail.com \
   -e JIRA_API_TOKEN=your_token \
-  ghcr.io/troubladore/mcp-atlassian:v0.11.10
+  ghcr.io/troubladore/mcp-atlassian:v0.20.1
 ```
 
 ### Authentication failures (401)

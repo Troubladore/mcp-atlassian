@@ -179,7 +179,7 @@ From the **repo root** (`mcp-atlassian/`):
 
 ```bash
 # Build from our audited Dockerfile
-docker build -t ghcr.io/troubladore/mcp-atlassian:v0.11.10 .
+docker build -t ghcr.io/troubladore/mcp-atlassian:v0.20.1 .
 ```
 
 ### Step 2: Push the Image to GHCR
@@ -189,7 +189,7 @@ docker build -t ghcr.io/troubladore/mcp-atlassian:v0.11.10 .
 echo "YOUR_CLASSIC_PAT" | docker login ghcr.io -u Troubladore --password-stdin
 
 # Push
-docker push ghcr.io/troubladore/mcp-atlassian:v0.11.10
+docker push ghcr.io/troubladore/mcp-atlassian:v0.20.1
 ```
 
 After the first push, make the package public at:
@@ -233,7 +233,7 @@ Users double-click to install.
 
 ```bash
 # Image should already exist from the build step
-docker images ghcr.io/troubladore/mcp-atlassian:v0.11.10
+docker images ghcr.io/troubladore/mcp-atlassian:v0.20.1
 ```
 
 ### 2. Install in Claude Desktop
@@ -250,7 +250,7 @@ Ask Claude to search Confluence or fetch a Jira issue.
 ### 4. Verify container security
 
 ```bash
-docker inspect $(docker ps -q --filter ancestor=ghcr.io/troubladore/mcp-atlassian:v0.11.10) \
+docker inspect $(docker ps -q --filter ancestor=ghcr.io/troubladore/mcp-atlassian:v0.20.1) \
   --format '{{json .HostConfig.SecurityOpt}} {{json .HostConfig.CapDrop}} {{json .HostConfig.ReadonlyRootfs}}'
 
 # Expected output: ["no-new-privileges:true"] ["ALL"] true
@@ -271,10 +271,27 @@ When mcp-atlassian releases a new version:
 2. Review changes for security (check `security/SCANNING_PROTOCOL.md`)
 3. Build new Docker image: `docker build -t ghcr.io/troubladore/mcp-atlassian:vX.Y.Z .`
 4. Push to GHCR: `docker push ghcr.io/troubladore/mcp-atlassian:vX.Y.Z`
-5. Update `IMAGE` constant in `server/index.js` to the new tag
+5. Update `IMAGE` constant in `server/index.js` and `claude-code-launcher.sh` to the new tag
 6. Update `"version"` in `manifest.json` (bump semver)
-7. Rebuild: `mcpb pack . eruditis-atlassian-X.Y.Z.mcpb`
-8. Re-upload to Claude team settings
+7. Update `MCP_IMAGE` in `tests/integration.test.js`
+8. Run tests: `node --test tests/*.test.js`
+9. Rebuild `.mcpb`: `mcpb pack . eruditis-atlassian-X.Y.Z.mcpb`
+10. Re-upload to Claude team settings
+
+### Updating Claude Code standalone installations
+
+After updating, each Claude Code user must re-copy the launcher and proxy to
+their standalone config directory:
+
+```bash
+cp docs/mcpb-extension/claude-code-launcher.sh ~/.config/mcp-atlassian/
+cp -r docs/mcpb-extension/proxy ~/.config/mcp-atlassian/
+chmod 700 ~/.config/mcp-atlassian/claude-code-launcher.sh
+```
+
+This ensures the standalone installation stays in sync with the repo. The MCP
+server registration (`~/.claude.json`) does not need updating — it points to the
+stable `~/.config/mcp-atlassian/` path, not the repo.
 
 ## Security Posture
 
@@ -334,7 +351,7 @@ Both mcp-atlassian and proxy containers:
 - `--network=bridge` - Default bridge network (no host network access)
 
 ### Access Control
-- **Pinned image version**: Uses `v0.11.10`, not `latest`
+- **Pinned image version**: Uses `v0.20.1`, not `latest`
 - **Read-only by default**: `READ_ONLY_MODE=true` blocks all writes
 - **Delete blocked by default**: `ALLOW_DELETE_TOOLS=false` blocks deletes even when writes enabled
 - **Toolset filtering**: `TOOLSETS=default` exposes only 6 core toolsets (of 21 available)

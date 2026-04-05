@@ -27,7 +27,7 @@
 set -euo pipefail
 
 # --- Configuration ---
-IMAGE="ghcr.io/troubladore/mcp-atlassian:v0.11.16"
+IMAGE="ghcr.io/troubladore/mcp-atlassian:v0.20.1"
 PROXY_IMAGE="eruditis/atlassian-proxy:latest"
 PROXY_CONTAINER_NAME="eruditis-atlassian-proxy"
 NETWORK_NAME="eruditis-atlassian-net"

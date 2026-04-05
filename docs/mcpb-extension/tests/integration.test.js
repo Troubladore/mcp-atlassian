@@ -15,7 +15,7 @@ const PROXY_DIR = path.join(ROOT, "proxy");
 const PROXY_IMAGE = "eruditis/atlassian-proxy:test";
 const PROXY_CONTAINER = "mcpb-test-proxy";
 const NETWORK = "mcpb-test-net";
-const MCP_IMAGE = "ghcr.io/troubladore/mcp-atlassian:v0.11.10";
+const MCP_IMAGE = "ghcr.io/troubladore/mcp-atlassian:v0.20.1";
 
 function exec(cmd, opts = {}) {
   return execSync(cmd, { encoding: "utf-8", timeout: 120000, ...opts }).trim();
