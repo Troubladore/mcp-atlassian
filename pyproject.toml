@@ -32,8 +32,12 @@ dependencies = [
     # Transitive dependency minimum versions (security pins)
     # These are pulled in by direct deps above; pins here enforce patched versions.
     "urllib3>=2.6.3",    # via requests
-    "authlib>=1.6.9",    # via fastmcp; GHSA-Dg8v-q2c4-jgg7, GHSA-2j6r-wm78-ggrh, GHSA-62pr-8mfp-2r46
+    # authlib 1.7.0 emits an internal AuthlibDeprecationWarning on import;
+    # pin <1.7 until that settles (still gets the CVE fix which landed in 1.6.11).
+    "authlib>=1.6.11,<1.7.0",  # via fastmcp; GHSA-Dg8v-q2c4-jgg7, GHSA-2j6r-wm78-ggrh, GHSA-62pr-8mfp-2r46, authlib-cache-csrf
     "pyjwt>=2.12.1",     # via mcp; GHSA-75c7-48vg-6jqx
+    "cryptography>=46.0.7",     # via authlib/pyjwt[crypto]/secretstorage; CVE-2026-39892
+    "python-multipart>=0.0.26", # via mcp; CVE-2026-40347
 ]
 [[project.authors]]
 name = "sooperset"
@@ -48,8 +52,8 @@ mcp-atlassian = "mcp_atlassian:main"
 
 [dependency-groups]
 dev = [
-    "uv>=0.1.0",
-    "pytest>=8.0.0",
+    "uv>=0.11.6",     # GHSA — arbitrary file deletion via RECORD entries (dev/CI surface)
+    "pytest>=9.0.3",  # CVE-2025-71176 — vulnerable tmpdir handling (dev/CI surface)
     "pytest-cov>=4.1.0",
     "pytest-asyncio>=0.23.0",
     "pytest-anyio>=0.0.0",
