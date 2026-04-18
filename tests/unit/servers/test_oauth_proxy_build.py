@@ -356,6 +356,46 @@ async def test_register_client_applies_default_grant_type_allowlist_when_env_uns
 
 
 @pytest.mark.anyio
+async def test_register_client_falls_back_to_allowlist_when_client_grant_types_empty(
+    monkeypatch,
+):
+    """When the client omits grant_types (empty list), the stored grant_types
+    must fall back to the configured allowlist — not be empty.
+
+    Without this fallback, a client registering with no grant_types would be
+    rendered unable to exchange tokens at all.
+    """
+    monkeypatch.setenv(
+        "ATLASSIAN_OAUTH_ALLOWED_GRANT_TYPES", "authorization_code,refresh_token"
+    )
+    monkeypatch.setenv("ATLASSIAN_OAUTH_SCOPE", "read:jira-work")
+    monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    monkeypatch.delenv("ATLASSIAN_OAUTH_INSTANCE_URL", raising=False)
+    monkeypatch.setenv("JIRA_URL", "https://jira.example.com")
+    _set_required_oauth_env(
+        monkeypatch, redirect_uri="https://mcp.example.com/mcp-atlassian/callback"
+    )
+
+    provider = _build_auth_provider()
+
+    assert provider is not None
+    client = OAuthClientInformationFull(
+        client_id="client-empty-grants",
+        client_secret="secret",
+        redirect_uris=["http://localhost:1234/callback"],
+        grant_types=[],
+        scope="read:jira-work",
+    )
+
+    await provider.register_client(client)
+    stored = await provider._client_store.get(key="client-empty-grants")
+
+    assert stored is not None
+    assert stored.response_types == ["code"]
+    assert stored.grant_types == ["authorization_code", "refresh_token"]
+
+
+@pytest.mark.anyio
 async def test_register_client_preserves_scope_when_forced_unset(monkeypatch):
     """When ATLASSIAN_OAUTH_SCOPE is unset, the client's requested scope is preserved."""
     monkeypatch.delenv("ATLASSIAN_OAUTH_SCOPE", raising=False)

@@ -559,6 +559,35 @@ class TestUserTokenMiddleware:
         }
 
     @pytest.mark.anyio
+    async def test_service_headers_without_auth_header_set_pat_auth_type(
+        self, middleware, mock_scope, mock_receive, mock_send, monkeypatch
+    ):
+        """When no Authorization header is present but Jira service headers
+        provide both URL and PAT, the middleware must proceed (no 401) with
+        user_atlassian_auth_type == "pat" and user_atlassian_email == None.
+
+        This is the header-only fallback path used by header-based multi-tenant
+        auth and sidecar-style deployments.
+        """
+        monkeypatch.setenv("MCP_ALLOWED_URL_DOMAINS", "jira.example.com")
+        mock_scope["headers"] = [
+            (b"x-atlassian-jira-url", b"https://jira.example.com"),
+            (b"x-atlassian-jira-personal-token", b"header-pat"),
+        ]
+
+        await middleware(mock_scope, mock_receive, mock_send)
+
+        middleware.app.assert_called_once()
+        mock_send.assert_not_called()
+        passed_scope = middleware.app.call_args[0][0]
+        assert passed_scope["state"]["user_atlassian_auth_type"] == "pat"
+        assert passed_scope["state"]["user_atlassian_email"] is None
+        assert passed_scope["state"]["atlassian_service_headers"] == {
+            "X-Atlassian-Jira-Url": "https://jira.example.com",
+            "X-Atlassian-Jira-Personal-Token": "header-pat",
+        }
+
+    @pytest.mark.anyio
     async def test_ssrf_validation_rejects_private_ip_jira_url(
         self, middleware, mock_scope, mock_receive, mock_send
     ):
