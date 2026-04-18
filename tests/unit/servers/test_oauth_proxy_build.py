@@ -308,8 +308,82 @@ async def test_register_client_hardens_grant_types_and_scopes(monkeypatch):
     stored = await provider._client_store.get(key="client-123")
 
     assert stored is not None
+    assert stored.response_types == ["code"]
     assert stored.grant_types == ["authorization_code"]
     assert stored.scope == "read:jira-work"
+
+
+@pytest.mark.anyio
+async def test_register_client_applies_default_grant_type_allowlist_when_env_unset(
+    monkeypatch,
+):
+    """When ATLASSIAN_OAUTH_ALLOWED_GRANT_TYPES is unset, the provider defaults to
+    ["authorization_code", "refresh_token"] (see main.DEFAULT_ALLOWED_GRANT_TYPES)
+    and filters other requested grant types out.
+    """
+    monkeypatch.delenv("ATLASSIAN_OAUTH_ALLOWED_GRANT_TYPES", raising=False)
+    monkeypatch.setenv("ATLASSIAN_OAUTH_SCOPE", "read:jira-work")
+    monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    monkeypatch.delenv("ATLASSIAN_OAUTH_INSTANCE_URL", raising=False)
+    monkeypatch.setenv("JIRA_URL", "https://jira.example.com")
+    _set_required_oauth_env(
+        monkeypatch, redirect_uri="https://mcp.example.com/mcp-atlassian/callback"
+    )
+
+    provider = _build_auth_provider()
+
+    assert provider is not None
+    client = OAuthClientInformationFull(
+        client_id="client-default-allowlist",
+        client_secret="secret",
+        redirect_uris=["http://localhost:1234/callback"],
+        grant_types=[
+            "refresh_token",
+            "authorization_code",
+            "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        ],
+        scope="read:jira-work",
+    )
+
+    await provider.register_client(client)
+    stored = await provider._client_store.get(key="client-default-allowlist")
+
+    assert stored is not None
+    assert stored.response_types == ["code"]
+    # Default allowlist keeps authorization_code + refresh_token,
+    # drops jwt-bearer; preserves original request order.
+    assert stored.grant_types == ["refresh_token", "authorization_code"]
+
+
+@pytest.mark.anyio
+async def test_register_client_preserves_scope_when_forced_unset(monkeypatch):
+    """When ATLASSIAN_OAUTH_SCOPE is unset, the client's requested scope is preserved."""
+    monkeypatch.delenv("ATLASSIAN_OAUTH_SCOPE", raising=False)
+    monkeypatch.setenv("ATLASSIAN_OAUTH_ALLOWED_GRANT_TYPES", "authorization_code")
+    monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    monkeypatch.delenv("ATLASSIAN_OAUTH_INSTANCE_URL", raising=False)
+    monkeypatch.setenv("JIRA_URL", "https://jira.example.com")
+    _set_required_oauth_env(
+        monkeypatch, redirect_uri="https://mcp.example.com/mcp-atlassian/callback"
+    )
+
+    provider = _build_auth_provider()
+
+    assert provider is not None
+    client = OAuthClientInformationFull(
+        client_id="client-scope-unset",
+        client_secret="secret",
+        redirect_uris=["http://localhost:1234/callback"],
+        grant_types=["authorization_code"],
+        scope="custom:read custom:write",
+    )
+
+    await provider.register_client(client)
+    stored = await provider._client_store.get(key="client-scope-unset")
+
+    assert stored is not None
+    assert stored.response_types == ["code"]
+    assert stored.scope == "custom:read custom:write"
 
 
 def test_build_auth_provider_none_when_nonsecret_config_missing(monkeypatch):
