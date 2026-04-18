@@ -526,6 +526,82 @@ class TestUserTokenMiddleware:
         assert start_call["status"] == 401
         middleware.app.assert_not_called()
 
+    @pytest.mark.anyio
+    async def test_service_headers_populated_from_request_headers(
+        self, middleware, mock_scope, mock_receive, mock_send, monkeypatch
+    ):
+        """Per-service header extraction must populate
+        request.state.atlassian_service_headers with the canonical
+        `X-Atlassian-*` key shape. This is the contract that
+        _list_tools_mcp and downstream tool fetchers rely on.
+        """
+        # Skip SSRF DNS resolution by allowlisting the test hosts explicitly.
+        monkeypatch.setenv(
+            "MCP_ALLOWED_URL_DOMAINS", "jira.example.com,confluence.example.com"
+        )
+        mock_scope["headers"] = [
+            (b"authorization", b"Bearer oauth-token"),
+            (b"x-atlassian-jira-url", b"https://jira.example.com"),
+            (b"x-atlassian-jira-personal-token", b"jira-pat"),
+            (b"x-atlassian-confluence-url", b"https://confluence.example.com/wiki"),
+            (b"x-atlassian-confluence-personal-token", b"conf-pat"),
+        ]
+
+        await middleware(mock_scope, mock_receive, mock_send)
+
+        middleware.app.assert_called_once()
+        passed_scope = middleware.app.call_args[0][0]
+        assert passed_scope["state"]["atlassian_service_headers"] == {
+            "X-Atlassian-Jira-Url": "https://jira.example.com",
+            "X-Atlassian-Jira-Personal-Token": "jira-pat",
+            "X-Atlassian-Confluence-Url": "https://confluence.example.com/wiki",
+            "X-Atlassian-Confluence-Personal-Token": "conf-pat",
+        }
+
+    @pytest.mark.anyio
+    async def test_ssrf_validation_rejects_private_ip_jira_url(
+        self, middleware, mock_scope, mock_receive, mock_send
+    ):
+        """Private-IP Jira URL in headers must be rejected with 401 before app runs."""
+        mock_scope["headers"] = [
+            (b"authorization", b"Bearer oauth-token"),
+            (b"x-atlassian-jira-url", b"http://127.0.0.1:8080"),
+            (b"x-atlassian-jira-personal-token", b"jira-pat"),
+        ]
+
+        await middleware(mock_scope, mock_receive, mock_send)
+
+        middleware.app.assert_not_called()
+        assert mock_send.call_count == 2
+        start_call = mock_send.call_args_list[0][0][0]
+        assert start_call["status"] == 401
+
+        body_call = mock_send.call_args_list[1][0][0]
+        body = json.loads(body_call["body"].decode())
+        assert "Invalid Jira URL" in body["error"]
+
+    @pytest.mark.anyio
+    async def test_ssrf_validation_rejects_non_http_confluence_url(
+        self, middleware, mock_scope, mock_receive, mock_send
+    ):
+        """Non-http(s) Confluence URL scheme in headers must be rejected with 401."""
+        mock_scope["headers"] = [
+            (b"authorization", b"Bearer oauth-token"),
+            (b"x-atlassian-confluence-url", b"file:///etc/passwd"),
+            (b"x-atlassian-confluence-personal-token", b"conf-pat"),
+        ]
+
+        await middleware(mock_scope, mock_receive, mock_send)
+
+        middleware.app.assert_not_called()
+        assert mock_send.call_count == 2
+        start_call = mock_send.call_args_list[0][0][0]
+        assert start_call["status"] == 401
+
+        body_call = mock_send.call_args_list[1][0][0]
+        body = json.loads(body_call["body"].decode())
+        assert "Invalid Confluence URL" in body["error"]
+
     def test_should_process_auth_uses_runtime_streamable_path(self):
         mock_app = AsyncMock()
         mock_mcp_server = MagicMock()
