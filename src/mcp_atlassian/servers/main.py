@@ -303,6 +303,8 @@ class AtlassianMCP(FastMCP[MainAppContext]):
         return self._normalize_http_path(fastmcp_settings.streamable_http_path)
 
     async def _list_tools_mcp(self) -> list[MCPTool]:
+        # Deferred: evaluate replacing this override with a native FastMCP 3.x
+        # extension surface. See Troubladore/mcp-atlassian#326.
         # Filter tools based on enabled_tools, read_only mode, and service configuration from the lifespan context.
         req_context = self._mcp_server.request_context
         if req_context is None or req_context.lifespan_context is None:
@@ -432,6 +434,8 @@ class AtlassianMCP(FastMCP[MainAppContext]):
         event_store: EventStore | None = None,
         retry_interval: int | None = None,
     ) -> StarletteWithLifespan:
+        # Deferred: evaluate replacing this override with a native FastMCP 3.x
+        # extension surface. See Troubladore/mcp-atlassian#326.
         final_path = path
         if transport == "streamable-http":
             configured_path = path or fastmcp_settings.streamable_http_path
