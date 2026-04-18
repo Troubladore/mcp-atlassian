@@ -388,6 +388,62 @@ class TestMCPProtocolIntegration:
             # Assert no tools are available when services not configured
             assert len(tools) == 0
 
+    async def test_tool_filtering_per_request_header_based_service_availability(
+        self, atlassian_mcp_server
+    ):
+        """Per-request service headers must enable Jira tools even when no
+        startup-time config is present.
+
+        This pins the behavior that _list_tools_mcp reads
+        request.state.atlassian_service_headers and passes it through
+        get_available_services(headers). Without startup-time config and
+        with only Jira headers populated, only Jira tools should appear.
+        """
+        with MockEnvironment.clean_env():
+            app_context = MainAppContext(
+                full_jira_config=None,  # Not configured at startup
+                full_confluence_config=None,
+                read_only=False,
+                enabled_tools=None,
+            )
+
+            mock_request = MagicMock()
+            mock_request.state.atlassian_service_headers = {
+                "X-Atlassian-Jira-Url": "https://jira.example.com",
+                "X-Atlassian-Jira-Personal-Token": "header-pat",
+            }
+
+            request_context = MagicMock()
+            request_context.lifespan_context = {"app_lifespan_context": app_context}
+            request_context.request = mock_request
+
+            atlassian_mcp_server._mcp_server = MagicMock()
+            atlassian_mcp_server._mcp_server.request_context = request_context
+
+            async def mock_get_tools():
+                tools = {}
+                for tool_name, tags in [
+                    ("jira_get_issue", {"jira", "read"}),
+                    ("confluence_get_page", {"confluence", "read"}),
+                ]:
+                    tool = MagicMock(spec=FastMCPTool)
+                    tool.tags = tags
+                    tool.to_mcp_tool.return_value = MCPTool(
+                        name=tool_name,
+                        description=f"Tool {tool_name}",
+                        inputSchema={"type": "object", "properties": {}},
+                    )
+                    tools[tool_name] = tool
+                return tools
+
+            atlassian_mcp_server.get_tools = mock_get_tools
+
+            tools = await atlassian_mcp_server._list_tools_mcp()
+
+            tool_names = [tool.name for tool in tools]
+            assert "jira_get_issue" in tool_names
+            assert "confluence_get_page" not in tool_names
+
     async def test_middleware_oauth_token_processing(self):
         """Test UserTokenMiddleware OAuth token extraction and processing."""
         # Create mock mcp_server with get_streamable_http_path
