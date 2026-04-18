@@ -185,7 +185,7 @@ Each spike is bounded: answerable by reading FastMCP 3.2.0 source or running a s
 | `get_access_token` | `fastmcp.server.dependencies.get_access_token` | `fastmcp.server.dependencies.get_access_token` | unchanged |
 | `get_http_request` | `fastmcp.server.dependencies.get_http_request` | `fastmcp.server.dependencies.get_http_request` | unchanged |
 | `StarletteWithLifespan` | `fastmcp.server.http.StarletteWithLifespan` | `fastmcp.server.http.StarletteWithLifespan` | unchanged |
-| `EventStore` | `fastmcp.server.event_store.EventStore` | `mcp.server.streamable_http.EventStore` | **moved to MCP SDK** — update import |
+| `EventStore` | `fastmcp.server.event_store.EventStore` | `fastmcp.server.event_store.EventStore` | unchanged for application code; in 3.x it is a subclass of `mcp.server.streamable_http.EventStore` (the SDK type), but the `fastmcp.server.event_store` re-export still exists and is what `http_app(event_store=...)` is typed against in `server/mixins/transport.py` |
 | `Tool` | `fastmcp.tools.Tool` | `fastmcp.tools.Tool` | unchanged (re-exported from `fastmcp.tools.base`) |
 | `ToolError` | `fastmcp.exceptions.ToolError` | `fastmcp.exceptions.ToolError` | unchanged |
 | `FastMCP`, `Context` | `fastmcp.FastMCP`, `fastmcp.Context` | same | unchanged |
@@ -289,13 +289,17 @@ Still a top-level singleton (`settings = Settings()` in `fastmcp/__init__.py`). 
 
 ### OAuth storage behavior under `client_storage=None` (Spike 2)
 
-**Impact:** Under 3.x defaults, existing `DiskStore` data is **ignored** (the new code path never touches the old diskcache SQLite file). The new default is an **encrypted `FileTreeStore`** (per-key JSON, Fernet-wrapped) at `${FASTMCP_HOME:-~/.local/share/fastmcp}/oauth-proxy/<12-char sha256 fingerprint of derived storage key>/`. Users in default storage mode **will need to re-authenticate once** after upgrade; DCR client registrations, upstream refresh tokens, and auth codes all start empty silently. `DiskStore` has been entirely removed from FastMCP 3.x (the class still exists in the third-party `key_value` package but is not imported anywhere in `fastmcp/`).
+**What the source shows:** FastMCP 3.x removes internal use of `DiskStore` (the class still exists in the third-party `key_value` package but is not imported anywhere in `fastmcp/`). When `client_storage=None`, `OAuthProxy.__init__` constructs an **encrypted `FileTreeStore`** (per-key JSON, Fernet-wrapped) at `${FASTMCP_HOME:-~/.local/share/fastmcp}/oauth-proxy/<12-char sha256 fingerprint of derived storage key>/`. The on-disk format (per-key JSON) is not structurally compatible with what 2.x's `DiskStore` (diskcache/SQLite) wrote, and no migration path was found in the FastMCP source.
 
-**Sharpened release note:** *"OAuth client storage (default mode): FastMCP 3.x replaces the previous `DiskStore` with an encrypted `FileTreeStore` at a new path under `$FASTMCP_HOME` (default `~/.local/share/fastmcp/oauth-proxy/<key-fingerprint>/`). The on-disk formats are incompatible and there is no migration. Users on default storage will need to re-authenticate once after upgrading. Operators who need zero-downtime cutover should migrate to `ATLASSIAN_OAUTH_CLIENT_STORAGE_MODE=factory` with an external backend before the upgrade."*
+**Operational impact (not yet exercised):** Source evidence is consistent with default-mode deployments needing to re-authenticate once after upgrade, but this spike did not actually attempt to read pre-existing 2.x storage under the 3.x code path. Until that is demonstrated, default-mode deployments **should be treated as requiring re-auth** for release-note and rollout planning purposes.
+
+**Release note wording:** *"OAuth client storage (default mode): FastMCP 3.x replaces the previous `DiskStore` with an encrypted `FileTreeStore` at a new path under `$FASTMCP_HOME` (default `~/.local/share/fastmcp/oauth-proxy/<key-fingerprint>/`). Treat default-mode deployments as requiring a one-time re-authentication after upgrade unless migration compatibility is explicitly demonstrated. Operators who need zero-downtime cutover should migrate to `ATLASSIAN_OAUTH_CLIENT_STORAGE_MODE=factory` with an external backend before the upgrade."*
 
 ### HTTP middleware pipeline (Spike 3)
 
-**Verdict:** No changes required. In 3.x, Starlette middleware attaches via the `middleware=list[starlette.middleware.Middleware]` kwarg on `FastMCP.http_app()` (forwarded from `run_http_async`), exactly as in 2.x. `request.state` semantics are identical — FastMCP's outermost layer `RequestContextMiddleware` constructs a stock `starlette.requests.Request(scope)` and Starlette's shared `scope["state"]` continues to carry `atlassian_service_headers` across the pipeline. The order we care about is preserved: our `UserTokenMiddleware` runs after `RequestContextMiddleware` (so `get_http_request()` works inside tools) and before any auth-provider route wrappers (so SSRF check + 401 short-circuit still win before MCP handling).
+**Verdict:** No upstream structural change found that would force middleware rewiring. In 3.x, Starlette middleware still attaches via the `middleware=list[starlette.middleware.Middleware]` kwarg on `FastMCP.http_app()` (forwarded from `run_http_async`), and FastMCP's outermost layer `RequestContextMiddleware` constructs a stock `starlette.requests.Request(scope)` — the shared `scope["state"]` is what Starlette uses for `request.state`, and nothing in the traced call path rewraps or relocates it. Order is preserved: our `UserTokenMiddleware` would run after `RequestContextMiddleware` (so `get_http_request()` works inside tools) and before any auth-provider route wrappers (so SSRF check + 401 short-circuit still win before MCP handling).
+
+**How we'll verify:** Keep current middleware insertion pattern unchanged and rely on regression tests around `request.state.atlassian_service_headers` population and early-401 behavior (Task 9) to catch any behavior drift the source read missed.
 
 FastMCP 3.x also ships a new *MCP-level* middleware abstraction at `fastmcp.server.middleware`, registered via `FastMCP.add_middleware()`. It operates on `MiddlewareContext[T]` with MCP message types, **not** ASGI scope/receive/send — not a suitable home for `UserTokenMiddleware`. Orthogonal and additive to Starlette middleware.
 
@@ -306,8 +310,8 @@ FastMCP 3.2.4 declares `Requires-Python: >=3.10`. Our project **can keep `requir
 ### Concrete changes implied for the port
 
 1. **Import updates** (Tasks 13–15):
-   - `fastmcp.server.auth.oauth_proxy.OAuthClientInformationFull` → `mcp.shared.auth.OAuthClientInformationFull`.
-   - `fastmcp.server.event_store.EventStore` → `mcp.server.streamable_http.EventStore`.
+   - `fastmcp.server.auth.oauth_proxy.OAuthClientInformationFull` → `mcp.shared.auth.OAuthClientInformationFull` (only confirmed application-level import move).
+   - `fastmcp.server.event_store.EventStore` is **unchanged** for application code — the re-export still exists in 3.x, so `src/mcp_atlassian/servers/main.py` does not need to move this import.
    - All other `fastmcp.*` imports remain unchanged.
 
 2. **API-shape updates** (Tasks 16–22):
