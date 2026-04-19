@@ -7,6 +7,10 @@ from importlib.metadata import PackageNotFoundError, version
 
 from dotenv import dotenv_values, load_dotenv
 
+# Use the exceptiongroup backport; on 3.11+ it re-exports the builtin, and on
+# 3.10 it provides a compatible shim. Pulled in transitively via anyio.
+from exceptiongroup import BaseExceptionGroup as _BaseExceptionGroup
+
 # Inject truststore BEFORE any requests/urllib3 imports to ensure the
 # OS-native trust store (e.g. Windows Certificate Store) is used for
 # SSL verification instead of the bundled certifi CA certificates.
@@ -82,6 +86,17 @@ async def _watch_parent_exit(stop_event: threading.Event) -> None:
     await loop.run_in_executor(None, _poll_parent_alive)
 
 
+def _is_benign_stdio_shutdown(
+    exc: BaseException, benign_type: type[BaseException]
+) -> bool:
+    """True iff `exc` (possibly nested ExceptionGroups) contains only `benign_type`."""
+    if isinstance(exc, _BaseExceptionGroup):
+        return all(
+            _is_benign_stdio_shutdown(sub, benign_type) for sub in exc.exceptions
+        )
+    return isinstance(exc, benign_type)
+
+
 async def _run_stdio_with_stdin_guard(run_kwargs: dict[str, object]) -> None:
     from mcp_atlassian.servers import main_mcp
 
@@ -108,10 +123,23 @@ async def _run_stdio_with_stdin_guard(run_kwargs: dict[str, object]) -> None:
         server_result = await asyncio.gather(server_task, return_exceptions=True)
         if (
             server_result
-            and isinstance(server_result[0], Exception)
+            and isinstance(server_result[0], BaseException)
             and not isinstance(server_result[0], asyncio.CancelledError)
         ):
-            raise server_result[0]
+            # Tolerate the stdin-close race in FastMCP 3.x / MCP SDK: when the
+            # client closes stdin while the server is still streaming a
+            # response, the stdio transport tears down its write stream and
+            # the in-flight send raises ClosedResourceError. That is a benign
+            # shutdown signal, not a failure — swallow it so the CLI exits 0.
+            # FastMCP/anyio may wrap it in several nested TaskGroup
+            # ExceptionGroups, so flatten before classifying.
+            from anyio import ClosedResourceError
+
+            exc = server_result[0]
+            if _is_benign_stdio_shutdown(exc, ClosedResourceError):
+                logger.debug("Stdio shutdown: write stream closed during response.")
+                return
+            raise exc
 
 
 @click.version_option(__version__, prog_name="mcp-atlassian")

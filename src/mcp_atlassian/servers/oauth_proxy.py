@@ -6,7 +6,7 @@ import logging
 from collections.abc import Iterable
 
 from fastmcp.server.auth.oauth_proxy import OAuthProxy
-from mcp.server.auth.provider import OAuthClientInformationFull
+from mcp.shared.auth import OAuthClientInformationFull
 
 logger = logging.getLogger("mcp-atlassian.server.oauth_proxy")
 

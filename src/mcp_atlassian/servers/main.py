@@ -6,7 +6,7 @@ import functools
 import json
 import logging
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from typing import Any, Literal, Optional
 from urllib.parse import urlparse
@@ -303,6 +303,8 @@ class AtlassianMCP(FastMCP[MainAppContext]):
         return self._normalize_http_path(fastmcp_settings.streamable_http_path)
 
     async def _list_tools_mcp(self) -> list[MCPTool]:
+        # Deferred: evaluate replacing this override with a native FastMCP 3.x
+        # extension surface. See Troubladore/mcp-atlassian#326.
         # Filter tools based on enabled_tools, read_only mode, and service configuration from the lifespan context.
         req_context = self._mcp_server.request_context
         if req_context is None or req_context.lifespan_context is None:
@@ -347,13 +349,14 @@ class AtlassianMCP(FastMCP[MainAppContext]):
             f"_list_tools_mcp: read_only={read_only}, enabled_tools_filter={enabled_tools_filter}, header_services={header_based_services}"
         )
 
-        all_tools: dict[str, FastMCPTool] = await self.get_tools()
+        all_tools: Sequence[FastMCPTool] = await self.list_tools()
         logger.debug(
-            f"Aggregated {len(all_tools)} tools before filtering: {list(all_tools.keys())}"
+            f"Aggregated {len(all_tools)} tools before filtering: {[t.name for t in all_tools]}"
         )
 
         filtered_tools: list[MCPTool] = []
-        for registered_name, tool_obj in all_tools.items():
+        for tool_obj in all_tools:
+            registered_name = tool_obj.name
             tool_tags = tool_obj.tags
 
             if not should_include_tool_by_toolset(tool_tags, enabled_toolsets_filter):
@@ -431,6 +434,8 @@ class AtlassianMCP(FastMCP[MainAppContext]):
         event_store: EventStore | None = None,
         retry_interval: int | None = None,
     ) -> StarletteWithLifespan:
+        # Deferred: evaluate replacing this override with a native FastMCP 3.x
+        # extension surface. See Troubladore/mcp-atlassian#326.
         final_path = path
         if transport == "streamable-http":
             configured_path = path or fastmcp_settings.streamable_http_path
@@ -916,8 +921,8 @@ main_mcp = AtlassianMCP(
     lifespan=main_lifespan,
     auth=_build_auth_provider(),
 )
-main_mcp.mount(jira_mcp, "jira")
-main_mcp.mount(confluence_mcp, "confluence")
+main_mcp.mount(jira_mcp, namespace="jira")
+main_mcp.mount(confluence_mcp, namespace="confluence")
 
 
 @main_mcp.custom_route("/healthz", methods=["GET"], include_in_schema=False)

@@ -80,4 +80,7 @@ playground/
 
 # Dev docs (local task documents)
 dev/
-docs/plans/
+docs/plans/*
+# Exceptions: plans shared for reviewer visibility
+!docs/plans/2026-04-18-fastmcp-3x-migration-plan.md
+!docs/plans/2026-04-18-fastmcp-3x-migration-design.md

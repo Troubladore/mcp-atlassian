@@ -268,7 +268,7 @@ def test_confluence_mcp(mock_confluence_fetcher, mock_base_confluence_config):
     confluence_sub_mcp.add_tool(get_page_images)
     confluence_sub_mcp.add_tool(set_content_property)
 
-    test_mcp.mount(confluence_sub_mcp, prefix="confluence")
+    test_mcp.mount(confluence_sub_mcp, namespace="confluence")
 
     return test_mcp
 
@@ -339,7 +339,7 @@ def no_fetcher_test_confluence_mcp(mock_base_confluence_config):
     confluence_sub_mcp.add_tool(delete_attachment)
     confluence_sub_mcp.add_tool(get_page_images)
 
-    test_mcp.mount(confluence_sub_mcp, prefix="confluence")
+    test_mcp.mount(confluence_sub_mcp, namespace="confluence")
 
     return test_mcp
 
