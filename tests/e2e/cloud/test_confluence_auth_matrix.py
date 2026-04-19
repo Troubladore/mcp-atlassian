@@ -63,7 +63,18 @@ class TestConfluenceReadOperations:
         self,
         authed_confluence: ConfluenceFetcher,
         cloud_instance: CloudInstanceInfo,
+        request: pytest.FixtureRequest,
     ) -> None:
+        # Atlassian removed the v1 /rest/api/space endpoint on OAuth-routed
+        # paths (api.atlassian.com/ex/confluence/<cloud_id>/...). The library
+        # call still hits v1, so byo_oauth requests come back 410 Gone.
+        # Basic-auth requests still work because they go direct to the site.
+        # Migration tracked at #329.
+        if request.node.callspec.params.get("confluence_auth") == "byo_oauth":
+            pytest.skip(
+                "get_spaces v1 endpoint removed on OAuth-routed paths; "
+                "needs migration to Confluence API v2 (see #329)"
+            )
         # get_spaces defaults to limit=10; on accounts with many personal
         # spaces (~username) the configured test space can be paginated off
         # the first page. Walk pages until found or until exhausted, with a
