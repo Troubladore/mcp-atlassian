@@ -183,6 +183,156 @@ class TestConfluenceV2Adapter:
         assert "/wiki/wiki/" not in url, f"Double /wiki in URL: {url}"
         assert url.endswith(expected_path), f"Expected {expected_path}, got {url}"
 
+    def test_get_spaces_single_page(self, v2_adapter, mock_session):
+        """v2 /spaces response is returned in a v1-compatible envelope
+        with a single request when the first page covers the window."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "results": [
+                {
+                    "id": "111",
+                    "key": "ABC",
+                    "name": "Alpha",
+                    "type": "global",
+                    "_links": {"webui": "/spaces/ABC"},
+                },
+                {
+                    "id": "222",
+                    "key": "DEF",
+                    "name": "Delta",
+                    "type": "global",
+                    "_links": {"webui": "/spaces/DEF"},
+                },
+            ],
+            "_links": {},
+        }
+        mock_session.get.return_value = mock_response
+
+        result = v2_adapter.get_spaces(start=0, limit=10)
+
+        mock_session.get.assert_called_once_with(
+            "https://example.atlassian.net/wiki/api/v2/spaces",
+            params={"limit": 10},
+        )
+        assert result["start"] == 0
+        assert result["limit"] == 10
+        assert result["size"] == 2
+        assert [s["key"] for s in result["results"]] == ["ABC", "DEF"]
+        # v1-compat shape preserved
+        assert result["results"][0]["id"] == "111"
+        assert result["results"][0]["name"] == "Alpha"
+        assert result["results"][0]["type"] == "global"
+        assert result["results"][0]["_links"] == {"webui": "/spaces/ABC"}
+
+    def test_resolve_v2_next_link_does_not_double_wiki_prefix(self, v2_adapter):
+        """A /wiki-prefixed next link must not be double-prefixed when
+        the adapter's base_url already ends with /wiki."""
+        resolved = v2_adapter._resolve_v2_next_link("/wiki/api/v2/spaces?cursor=abc")
+        assert resolved == (
+            "https://example.atlassian.net/wiki/api/v2/spaces?cursor=abc"
+        )
+
+    def test_resolve_v2_next_link_passes_absolute_urls_through(self, v2_adapter):
+        """Absolute URLs are returned unchanged."""
+        absolute = "https://other.example.com/wiki/api/v2/spaces?cursor=z"
+        assert v2_adapter._resolve_v2_next_link(absolute) == absolute
+
+    def test_get_spaces_walks_cursor_and_applies_start_offset(
+        self, v2_adapter, mock_session
+    ):
+        """When the requested window spans two cursor pages, the adapter
+        walks _links.next until the window is covered, then slices."""
+        page1 = Mock()
+        page1.status_code = 200
+        page1.json.return_value = {
+            "results": [
+                {
+                    "id": "1",
+                    "key": "A",
+                    "name": "A",
+                    "type": "global",
+                    "_links": {},
+                },
+                {
+                    "id": "2",
+                    "key": "B",
+                    "name": "B",
+                    "type": "global",
+                    "_links": {},
+                },
+            ],
+            "_links": {"next": "/wiki/api/v2/spaces?cursor=abc"},
+        }
+        page2 = Mock()
+        page2.status_code = 200
+        page2.json.return_value = {
+            "results": [
+                {
+                    "id": "3",
+                    "key": "C",
+                    "name": "C",
+                    "type": "global",
+                    "_links": {},
+                },
+                {
+                    "id": "4",
+                    "key": "D",
+                    "name": "D",
+                    "type": "global",
+                    "_links": {},
+                },
+            ],
+            "_links": {},
+        }
+        mock_session.get.side_effect = [page1, page2]
+
+        result = v2_adapter.get_spaces(start=2, limit=2)
+
+        # Two cursor pages fetched before slicing.
+        assert mock_session.get.call_count == 2
+        first_call = mock_session.get.call_args_list[0]
+        assert first_call.args == ("https://example.atlassian.net/wiki/api/v2/spaces",)
+        assert first_call.kwargs == {"params": {"limit": 2}}
+        second_call = mock_session.get.call_args_list[1]
+        # Cursor URL resolved against base host; params=None on cursor hop.
+        assert second_call.args[0].endswith("/wiki/api/v2/spaces?cursor=abc")
+        assert second_call.kwargs == {"params": None}
+
+        # Slice semantics: start=2, limit=2 → results[2:4] == C, D.
+        assert [s["key"] for s in result["results"]] == ["C", "D"]
+        assert result["start"] == 2
+        assert result["limit"] == 2
+        assert result["size"] == 2
+
+    def test_get_spaces_empty_result(self, v2_adapter, mock_session):
+        """Empty v2 result returns an empty v1-compatible envelope."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"results": [], "_links": {}}
+        mock_session.get.return_value = mock_response
+
+        result = v2_adapter.get_spaces(start=0, limit=10)
+
+        assert result == {
+            "results": [],
+            "start": 0,
+            "limit": 10,
+            "size": 0,
+        }
+
+    def test_get_spaces_http_error_raises_value_error(self, v2_adapter, mock_session):
+        """HTTP errors surface as ValueError with context, matching the
+        rest of the adapter's error-handling contract."""
+        mock_response = Mock()
+        mock_response.status_code = 500
+        mock_response.text = "boom"
+        mock_response.raise_for_status.side_effect = HTTPError(response=mock_response)
+        mock_session.get.return_value = mock_response
+
+        with pytest.raises(ValueError, match="Failed to list spaces"):
+            v2_adapter.get_spaces(start=0, limit=10)
+
 
 class TestConfluenceV2AdapterComments:
     """Tests for v2 adapter comment operations."""
