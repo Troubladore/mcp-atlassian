@@ -14,6 +14,7 @@ from mcp_atlassian.utils.oauth_setup import (
     _log_dc_success,
     parse_redirect_uri,
     run_oauth_flow,
+    run_oauth_flow_returning_config,
     run_oauth_setup,
 )
 from tests.utils.assertions import assert_config_contains
@@ -244,6 +245,7 @@ class TestOAuthFlow:
                     redirect_uri="http://localhost:8080/callback",
                     scope="WRITE",
                     base_url=DC_JIRA_URL,
+                    persist=True,
                 )
                 mock_config.exchange_code_for_tokens.assert_called_once_with(
                     "test-auth-code"
@@ -810,6 +812,159 @@ class TestOAuthSetupArgs:
             scope="WRITE",
             base_url=DC_JIRA_URL,
         )
+
+    def test_oauth_setup_args_persist_default_true(self):
+        """OAuthSetupArgs.persist defaults to True (back-compat)."""
+        args = OAuthSetupArgs(
+            client_id="a",
+            client_secret="b",
+            redirect_uri="http://localhost:8080/callback",
+            scope="c",
+        )
+        assert args.persist is True
+
+    def test_oauth_setup_args_persist_can_be_disabled(self):
+        """OAuthSetupArgs.persist=False is accepted."""
+        args = OAuthSetupArgs(
+            client_id="a",
+            client_secret="b",
+            redirect_uri="http://localhost:8080/callback",
+            scope="c",
+            persist=False,
+        )
+        assert args.persist is False
+
+
+class TestRunOAuthFlowReturningConfig:
+    """Tests for run_oauth_flow_returning_config (returns OAuthConfig|None)."""
+
+    @pytest.fixture(autouse=True)
+    def reset_oauth_state(self):
+        import mcp_atlassian.utils.oauth_setup as oauth_module
+
+        oauth_module.authorization_code = None
+        oauth_module.authorization_state = None
+        oauth_module.callback_received = False
+        oauth_module.callback_error = None
+
+    def test_returns_oauth_config_on_success(self):
+        """Returns the OAuthConfig instance with tokens populated."""
+        with MockOAuthServer.mock_oauth_flow():
+            with (
+                patch(
+                    "mcp_atlassian.utils.oauth_setup.OAuthConfig"
+                ) as mock_oauth_config,
+                patch("mcp_atlassian.utils.oauth_setup.wait_for_callback") as mock_wait,
+                patch(
+                    "mcp_atlassian.utils.oauth_setup.start_callback_server"
+                ) as mock_start_server,
+            ):
+
+                def setup_callback_state():
+                    import mcp_atlassian.utils.oauth_setup as oauth_module
+
+                    oauth_module.authorization_code = "test-auth-code"
+                    oauth_module.authorization_state = "test-state-token"
+                    return True
+
+                mock_wait.side_effect = setup_callback_state
+                mock_start_server.return_value = MagicMock()
+
+                mock_config = MagicMock()
+                mock_config.exchange_code_for_tokens.return_value = True
+                mock_config.is_data_center = False
+                mock_config.cloud_id = "test-cloud-id"
+                mock_config.persist = True
+                mock_oauth_config.return_value = mock_config
+
+                args = OAuthSetupArgs(
+                    client_id="x",
+                    client_secret="y",
+                    redirect_uri="http://localhost:8080/callback",
+                    scope="z",
+                )
+                with patch("mcp_atlassian.utils.oauth_setup._log_cloud_success"):
+                    result = run_oauth_flow_returning_config(args)
+
+                assert result is mock_config
+
+    def test_returns_none_on_token_exchange_failure(self):
+        """Returns None when exchange_code_for_tokens fails."""
+        with MockOAuthServer.mock_oauth_flow():
+            with (
+                patch(
+                    "mcp_atlassian.utils.oauth_setup.OAuthConfig"
+                ) as mock_oauth_config,
+                patch("mcp_atlassian.utils.oauth_setup.wait_for_callback") as mock_wait,
+                patch(
+                    "mcp_atlassian.utils.oauth_setup.start_callback_server"
+                ) as mock_start_server,
+            ):
+
+                def setup_callback_state():
+                    import mcp_atlassian.utils.oauth_setup as oauth_module
+
+                    oauth_module.authorization_code = "test-auth-code"
+                    oauth_module.authorization_state = "test-state-token"
+                    return True
+
+                mock_wait.side_effect = setup_callback_state
+                mock_start_server.return_value = MagicMock()
+
+                mock_config = MagicMock()
+                mock_config.exchange_code_for_tokens.return_value = False
+                mock_oauth_config.return_value = mock_config
+
+                args = OAuthSetupArgs(
+                    client_id="x",
+                    client_secret="y",
+                    redirect_uri="http://localhost:8080/callback",
+                    scope="z",
+                )
+                result = run_oauth_flow_returning_config(args)
+
+                assert result is None
+
+    def test_propagates_persist_false_to_oauth_config(self):
+        """OAuthSetupArgs(persist=False) constructs OAuthConfig with persist=False."""
+        with MockOAuthServer.mock_oauth_flow():
+            with (
+                patch(
+                    "mcp_atlassian.utils.oauth_setup.OAuthConfig"
+                ) as mock_oauth_config,
+                patch("mcp_atlassian.utils.oauth_setup.wait_for_callback") as mock_wait,
+                patch(
+                    "mcp_atlassian.utils.oauth_setup.start_callback_server"
+                ) as mock_start_server,
+            ):
+
+                def setup_callback_state():
+                    import mcp_atlassian.utils.oauth_setup as oauth_module
+
+                    oauth_module.authorization_code = "test-auth-code"
+                    oauth_module.authorization_state = "test-state-token"
+                    return True
+
+                mock_wait.side_effect = setup_callback_state
+                mock_start_server.return_value = MagicMock()
+
+                mock_config = MagicMock()
+                mock_config.exchange_code_for_tokens.return_value = True
+                mock_config.is_data_center = False
+                mock_config.cloud_id = "test-cloud-id"
+                mock_config.persist = False
+                mock_oauth_config.return_value = mock_config
+
+                args = OAuthSetupArgs(
+                    client_id="x",
+                    client_secret="y",
+                    redirect_uri="http://localhost:8080/callback",
+                    scope="z",
+                    persist=False,
+                )
+                run_oauth_flow_returning_config(args)
+
+                assert mock_oauth_config.call_args.kwargs["persist"] is False
 
 
 class TestConfigurationGeneration:
