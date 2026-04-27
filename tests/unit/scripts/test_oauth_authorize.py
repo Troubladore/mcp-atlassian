@@ -1,9 +1,10 @@
 """Tests for the scripts/oauth_authorize.py CLI script."""
 
 import importlib.util
+import json
 import os
 import sys
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 def _load_script_module():
@@ -120,3 +121,105 @@ class TestOAuthAuthorizeScript:
                 mod.main()
         # No warning about offline_access for DC
         assert "offline_access" not in caplog.text
+
+    def test_no_persist_flag_propagates(self):
+        """--no-persist sets OAuthSetupArgs.persist=False."""
+        mod = _load_script_module()
+        argv = [
+            "prog",
+            "--client-id",
+            "X",
+            "--client-secret",
+            "Y",
+            "--redirect-uri",
+            "http://localhost:8080/callback",
+            "--scope",
+            "read:jira-work offline_access",
+            "--no-persist",
+        ]
+        with patch.object(sys, "argv", argv):
+            with patch.object(mod, "run_oauth_flow_returning_config") as mock_flow:
+                mock_flow.return_value = None  # exit non-zero, skip stdout assertions
+                mod.main()
+        mock_flow.assert_called_once()
+        args = mock_flow.call_args[0][0]
+        assert args.persist is False
+
+    def test_default_omits_no_persist(self):
+        """Without --no-persist, OAuthSetupArgs.persist=True (back-compat)."""
+        mod = _load_script_module()
+        argv = [
+            "prog",
+            "--client-id",
+            "X",
+            "--client-secret",
+            "Y",
+            "--redirect-uri",
+            "http://localhost:8080/callback",
+            "--scope",
+            "read:jira-work offline_access",
+        ]
+        with patch.object(sys, "argv", argv):
+            with patch.object(mod, "run_oauth_flow") as mock_flow:
+                mock_flow.return_value = True
+                mod.main()
+        mock_flow.assert_called_once()
+        args = mock_flow.call_args[0][0]
+        assert args.persist is True
+
+    def test_no_persist_emits_json_to_stdout(self, capsys):
+        """--no-persist on success emits JSON token block to stdout."""
+        mod = _load_script_module()
+        argv = [
+            "prog",
+            "--client-id",
+            "X",
+            "--client-secret",
+            "Y",
+            "--redirect-uri",
+            "http://localhost:8080/callback",
+            "--scope",
+            "read:jira-work offline_access",
+            "--no-persist",
+        ]
+
+        fake_config = MagicMock()
+        fake_config.access_token = "fake-access"
+        fake_config.refresh_token = "fake-refresh"
+        fake_config.cloud_id = "fake-cloud"
+        fake_config.expires_at = 9999999999.0
+        fake_config.is_data_center = False
+        fake_config.base_url = None
+
+        with patch.object(sys, "argv", argv):
+            with patch.object(mod, "run_oauth_flow_returning_config") as mock_flow:
+                mock_flow.return_value = fake_config
+                result = mod.main()
+
+        assert result == 0
+        captured = capsys.readouterr()
+        payload = json.loads(captured.out)
+        assert payload["access_token"] == "fake-access"
+        assert payload["refresh_token"] == "fake-refresh"
+        assert payload["cloud_id"] == "fake-cloud"
+
+    def test_no_persist_failure_returns_nonzero(self):
+        """--no-persist when flow returns None exits with code 1."""
+        mod = _load_script_module()
+        argv = [
+            "prog",
+            "--client-id",
+            "X",
+            "--client-secret",
+            "Y",
+            "--redirect-uri",
+            "http://localhost:8080/callback",
+            "--scope",
+            "read:jira-work offline_access",
+            "--no-persist",
+        ]
+        with patch.object(sys, "argv", argv):
+            with patch.object(mod, "run_oauth_flow_returning_config") as mock_flow:
+                mock_flow.return_value = None
+                result = mod.main()
+        assert result == 1
