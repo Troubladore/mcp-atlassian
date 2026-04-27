@@ -1,109 +1,103 @@
 # Scripts
 
-Helper scripts for OAuth setup and tooling.
+Helper scripts for OAuth setup and BYO OAuth E2E test workflows.
 
-## `oauth_authorize.py` — interactive OAuth authorization flow
+## TL;DR for maintainers running the cloud E2E suite
 
-Runs Atlassian's OAuth 2.0 (3LO) authorization code flow: opens a browser to
-the authorization URL, hosts a localhost callback server, exchanges the
-authorization code for tokens, and (by default) saves the tokens to the OS
-keyring with a JSON backup at `~/.mcp-atlassian/oauth-<client_id>.json`.
+Set up your `.env` once with credentials in your secret store of choice, then:
+
+```bash
+op run --env-file=.env -- \
+    uv run python scripts/oauth_refresh.py \
+        --store 1password \
+        --exec uv run pytest tests/e2e/cloud/ -k byo_oauth --cloud-e2e -W error
+```
+
+That's it. The helper reads credentials from the configured store, refreshes
+the access token, persists the rotated refresh token back to the same store,
+and exec's pytest with the fresh credentials in its environment. No shell
+incantations to memorize, no manual cleanup after rotation, no token files
+to delete from `~/.mcp-atlassian/`.
+
+If the stored refresh token has gone stale (Atlassian invalidated it because
+something else consumed it), the helper falls back to the interactive
+authorize flow — open the URL it prints, click consent, and the new tokens
+are persisted to the store before pytest runs.
+
+---
+
+## Per-script reference
+
+### `oauth_authorize.py` — initial token mint
+
+Bootstrap path. Run this **once** when registering a new Atlassian OAuth
+app to mint the initial `access_token` / `refresh_token` / `cloud_id`. After
+that, `oauth_refresh.py` handles everything.
 
 ```bash
 uv run python scripts/oauth_authorize.py \
     --client-id YOUR_CLIENT_ID \
     --client-secret YOUR_CLIENT_SECRET \
     --redirect-uri http://localhost:8080/callback \
-    --scope "read:jira-work offline_access ..."
+    --scope "read:jira-work offline_access ..." \
+    --no-persist
 ```
 
-### `--no-persist` mode (BYO secret store)
+`--no-persist` suppresses on-disk and keyring writes; the JSON token block
+goes to stdout for the caller to capture into a secret store. Without
+`--no-persist`, tokens are saved to `~/.mcp-atlassian/oauth-<client_id>.json`
+plus the OS keyring (the upstream default — useful for local-only runs but
+not for the BYO secret-store workflow).
 
-Add `--no-persist` to suppress all on-disk and keyring writes. On success the
-script emits a JSON token block to stdout — the caller is responsible for
-storing it (e.g. piping into `op item edit`). Nothing is written to
-`~/.mcp-atlassian/` or the OS keyring.
+### `oauth_refresh.py` — refresh + persist + exec
 
-```bash
-uv run python scripts/oauth_authorize.py \
-    --client-id ... --client-secret ... --redirect-uri ... --scope ... \
-    --no-persist > /tmp/tokens.json
-```
+The maintainer-facing entry point. Reads credentials from a configured
+secret store, refreshes the access token, persists the rotated refresh token,
+and either prints JSON to stdout or execs a child command.
 
-The JSON block has the shape:
+#### `--store` (env | 1password)
 
-```json
-{
-  "access_token": "...",
-  "refresh_token": "...",
-  "expires_at": 1234567890.0,
-  "cloud_id": "..."        // or "base_url" for Server/DC
-}
-```
+Default `env`. Also configurable via the `CLOUD_E2E_OAUTH_BACKEND`
+environment variable.
 
-## `oauth_refresh.py` — refresh access token from stored refresh_token
+- **`env`** — reads literal env vars, no write-back. Suitable for CI runs
+  where the CI system injects credentials per-job, or for one-off runs
+  where the rotated token can be captured from the JSON stdout. If the
+  refresh token has gone stale, the script reports the error and exits
+  non-zero (no automatic re-auth, since there's nowhere to write the new
+  token).
+- **`1password`** — reads + writes via the `op` CLI. The script owns `op`
+  invocations directly with a list argv (no `shell=True`), so the rotated
+  refresh token never passes through a shell string. Required additional
+  flags: `--op-vault VAULT_UUID` and `--op-item-id ITEM_UUID` (or the
+  `ATLASSIAN_OAUTH_OP_VAULT` / `ATLASSIAN_OAUTH_OP_ITEM` env vars). On
+  refresh failure, falls back to the interactive authorize flow and
+  persists the new tokens to the store.
 
-Mints a fresh access token using a long-lived refresh token, without
-persisting anything. Used to wrap pytest invocations of the BYO OAuth E2E
-suite so each run gets a token within Atlassian's ~1-hour expiry window.
+Adding a new backend (Vault, AWS Secrets Manager, GCP Secret Manager, etc.)
+is a matter of adding a class to `_oauth_stores.py` that implements the
+same `read()` / `write()` / `writable()` surface; `oauth_refresh.py` will
+pick it up via the `--store` flag.
 
-Required environment variables:
+#### `--exec CMD ARG...`
 
-- `ATLASSIAN_OAUTH_CLIENT_ID`
-- `ATLASSIAN_OAUTH_CLIENT_SECRET`
-- `CLOUD_E2E_OAUTH_REFRESH_TOKEN`
-- `CLOUD_E2E_OAUTH_CLOUD_ID`
+After a successful refresh + persist, exec the given command with
+`CLOUD_E2E_OAUTH_ACCESS_TOKEN` and `CLOUD_E2E_OAUTH_CLOUD_ID` set in the
+child environment. Designed to wrap pytest invocations of the
+`byo_oauth`-parametrized tests in `tests/e2e/cloud/`, which read those
+two env vars via `CloudInstanceInfo.from_env()`.
 
-Two output modes:
+#### Default mode (no `--exec`)
 
-- **Default (stdout JSON)**: prints `{access_token, refresh_token, cloud_id, expires_at}` to stdout.
-- **`--exec CMD ARG...`**: sets `CLOUD_E2E_OAUTH_ACCESS_TOKEN` and `CLOUD_E2E_OAUTH_CLOUD_ID` in the child environment, then execs the given command.
-
-Run the BYO OAuth E2E tests with a fresh token:
-
-```bash
-op run --env-file=.env -- \
-    uv run python scripts/oauth_refresh.py \
-        --write-cmd 'op item edit h4uocvrp4sowktnke4zwu27axq \
-            "OAuth Credentials.access_token=$ATLASSIAN_OAUTH_ACCESS_TOKEN" \
-            "OAuth Credentials.refresh_token=$ATLASSIAN_OAUTH_REFRESH_TOKEN"' \
-        --exec uv run pytest tests/e2e/cloud/ -k byo_oauth --cloud-e2e -W error
-```
-
-The `op run` wrapper substitutes `op://...` references in `.env` to literal
-values before this script sees them. Without 1Password, populate the
-`CLOUD_E2E_OAUTH_*` and `ATLASSIAN_OAUTH_*` vars directly.
-
-### `--write-cmd` and Atlassian's refresh-token rotation
-
-Atlassian Cloud rotates the refresh token on every refresh — the old token is
-invalidated as soon as a new one is issued. If the rotated token isn't
-persisted somewhere, the next run sees a stale refresh token and fails with
-`401 Unauthorized` / `403 Forbidden` from the token endpoint.
-
-Default JSON-stdout mode preserves the rotated token (it's included in the
-JSON payload — pipe it to your secrets store). For `--exec` mode, use
-`--write-cmd` to update storage between refresh and exec; `--exec` cannot
-emit the token itself because it replaces the process.
-
-The write command runs:
-
-- After a successful refresh and before `--exec`.
-- With `ATLASSIAN_OAUTH_ACCESS_TOKEN`, `ATLASSIAN_OAUTH_REFRESH_TOKEN`, `ATLASSIAN_OAUTH_CLOUD_ID`, and `ATLASSIAN_OAUTH_EXPIRES_AT` in the environment.
-- With `stdin` redirected to `/dev/null` (so `op item edit` does not try to parse the parent's stdin as a JSON template — see the [op subprocess gotcha](#op-item-edit-scripting-gotchas) below).
-- Through `/bin/sh -c` (`shell=True`), so shell features like `$VAR` expansion and quoting work as expected.
-
-If the write command exits non-zero, `oauth_refresh.py` exits with the same
-code and does **not** run `--exec`. This is deliberate: if storage didn't
-update with the rotated refresh token, running the test would just consume
-another refresh and leave you in the same broken state.
+Prints the refreshed `{access_token, refresh_token, cloud_id, expires_at}`
+JSON block to stdout. Useful for piping into a different secrets store, for
+debugging, or when the test runner is invoked separately from a CI step.
 
 ---
 
-## Operational notes (collected from the PR #327 verification)
+## Operational notes
 
-These details were learned the hard way during the FastMCP 3.x port end-to-end
-verification. They apply when registering an Atlassian OAuth app and storing
+These details applied when registering an Atlassian OAuth app and storing
 its credentials in 1Password for use with the scripts above.
 
 ### Atlassian OAuth app configuration
@@ -131,23 +125,43 @@ offline_access
 
 ### 1Password item layout
 
-If storing credentials in 1Password, a two-section login item works well:
+For the `1password` store, the item must have two sections with these
+field labels (label-only — no section prefix in op:// references for read):
 
-- **Atlassian Credentials**: `client_id` (text), `client_secret` (concealed) — set once from the developer console, filled manually.
-- **OAuth Credentials**: `cloud_id` (text), `access_token` (concealed), `refresh_token` (concealed) — empty until the authorize/refresh scripts populate them.
+- **Atlassian Credentials**: `client_id` (text), `client_secret` (concealed)
+- **OAuth Credentials**: `cloud_id` (text), `access_token` (concealed), `refresh_token` (concealed)
 
-For `op://` references in `.env`, **always use UUIDs** (from `op vault list`
-and `op item get <name> --format json`). Display names with parens or
-em-dashes break the parser with `invalid character in secret reference`.
+Use **vault and item UUIDs** (not display names) in your `.env` —
+display names with parens, em-dashes, or other punctuation break the
+`op://` parser with `invalid character in secret reference`. Get UUIDs
+from `op vault list` and `op item get <name> --format json`.
 
-### `op item edit` scripting gotchas
+`.env` template (gitignored — fill in the real UUIDs from your environment):
 
-- When invoking `op item edit` from a subprocess, pass `stdin=subprocess.DEVNULL` (or `< /dev/null` in shell). Otherwise op tries to parse the parent's stdin as a JSON template and fails with `invalid JSON provided`.
-- Section prefix is required for `op item edit` field assignments: `op item edit <id> "OAuth Credentials.access_token=<value>"`.
-- Field labels are unique across sections, so reading via `op://vault/item/<field>` does not need a section prefix.
+```
+CLOUD_E2E_OAUTH_BACKEND=1password
+ATLASSIAN_OAUTH_OP_VAULT=<your-vault-uuid>
+ATLASSIAN_OAUTH_OP_ITEM=<your-item-uuid>
+
+# For automatic re-authorization when the stored refresh token has gone stale,
+# set the same scope and redirect URI you used at initial registration:
+ATLASSIAN_OAUTH_SCOPE=read:jira-work write:jira-work ... offline_access
+ATLASSIAN_OAUTH_REDIRECT_URI=http://localhost:8080/callback
+```
+
+The `1password` store invokes `op` directly via subprocess (not through a
+shell), passes secrets as discrete arg-list elements, and pipes
+`stdin=DEVNULL` into `op item edit` so op does not try to parse the
+parent's stdin as a JSON template.
 
 ### Behavior notes for `oauth_authorize.py`
 
-- In WSL the script can't `webbrowser.open()` (`gio` fails with `Operation not supported`) — the auth URL is logged to stderr, open it manually. The callback server still listens on localhost:8080.
-- The authorization URL has `prompt=consent` hard-coded, so the consent screen appears on every run, even after first approval.
-- Token exchange failures return generic `401 access_denied` regardless of root cause. Most common causes: (a) `client_secret` mismatch (rotated in console without updating storage), (b) redirect URI mismatch, (c) authorization code already consumed (single-use).
+- In WSL the script can't `webbrowser.open()` (`gio` fails with `Operation
+  not supported`) — the auth URL is logged to stderr, open it manually. The
+  callback server still listens on localhost:8080.
+- The authorization URL has `prompt=consent` hard-coded, so the consent
+  screen appears on every run, even after first approval.
+- Token exchange failures return generic `401 access_denied` regardless of
+  root cause. Most common causes: (a) `client_secret` mismatch (rotated in
+  console without updating storage), (b) redirect URI mismatch, (c)
+  authorization code already consumed (single-use).

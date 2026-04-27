@@ -1,69 +1,126 @@
 #!/usr/bin/env python
 """OAuth 2.0 refresh helper for BYO OAuth Cloud E2E tests.
 
-Reads a long-lived refresh_token from the environment, mints a fresh
-access_token via Atlassian's token endpoint, and emits the result without
-persisting anything to ``~/.mcp-atlassian/`` or the OS keyring.
+Reads OAuth credentials from a configured *secret store* (``env`` or
+``1password``), refreshes the access token, persists the rotated refresh
+token back to the store, and either prints a JSON token block to stdout
+or execs a child command (typically ``pytest``) with the fresh access
+token in its environment.
 
-Two output modes:
+Cloud refresh tokens are **single-use** — Atlassian rotates the
+``refresh_token`` on every refresh, invalidating the old one. Storing
+the rotated token back is therefore mandatory for repeatable workflows;
+this script does it transparently when configured against a writable
+store.
 
-- **Default (stdout JSON)**: prints a JSON block ``{access_token,
-  refresh_token, cloud_id, expires_at}`` to stdout. The caller can pipe
-  this into ``op item edit`` (or any other secrets-store update tool) to
-  refresh storage.
+Two stores ship today:
 
-- **``--exec CMD ARG...``**: sets ``CLOUD_E2E_OAUTH_ACCESS_TOKEN`` and
-  ``CLOUD_E2E_OAUTH_CLOUD_ID`` in the child environment and execs the
-  given command. Designed for wrapping pytest invocations of the BYO
-  OAuth E2E suite so each run gets a fresh access token within
-  Atlassian's ~1-hour expiry window.
+- **env** (default): reads literal env vars, no write-back. Suitable for
+  CI runs where the CI system injects credentials, or for one-off use
+  where the rotated token can be captured from the JSON stdout.
 
-Required environment variables:
+- **1password**: reads + writes via the ``op`` CLI as a child subprocess.
+  Owns ``op`` invocations directly with a list argv (no ``shell=True``),
+  so the rotated refresh token never passes through a shell string.
 
-- ``ATLASSIAN_OAUTH_CLIENT_ID``
-- ``ATLASSIAN_OAUTH_CLIENT_SECRET``
-- ``CLOUD_E2E_OAUTH_REFRESH_TOKEN``
-- ``CLOUD_E2E_OAUTH_CLOUD_ID``
+Output modes:
 
-When invoking under ``op run --env-file=.env``, ``op://`` references in
-the env file are substituted by the 1Password CLI before this script
-runs, so this helper itself stays ignorant of any specific secrets store.
+- **Default (stdout JSON)**: prints
+  ``{access_token, refresh_token, cloud_id, expires_at}`` to stdout.
+- **--exec CMD ARG...**: sets ``CLOUD_E2E_OAUTH_ACCESS_TOKEN`` and
+  ``CLOUD_E2E_OAUTH_CLOUD_ID`` in the child environment, then execs the
+  given command. Designed to wrap pytest invocations of the
+  byo_oauth-parametrized tests.
+
+If the refresh request fails (e.g. the stored refresh token is stale)
+**and** the configured store is writable, the script falls back to the
+interactive browser authorize flow and persists the new tokens before
+proceeding. This is the only path that requires a human in the loop —
+the browser consent step.
+
+Bootstrap (first-time setup) still uses ``scripts/oauth_authorize.py
+--no-persist`` for the initial token mint.
 """
+
+from __future__ import annotations
 
 import argparse
 import json
 import logging
 import os
-import subprocess
 import sys
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _SCRIPTS_DIR)
+sys.path.append(os.path.dirname(_SCRIPTS_DIR))
 
-from src.mcp_atlassian.utils.oauth import OAuthConfig
+from _oauth_stores import SecretStoreError, build_store  # noqa: E402
+
+from src.mcp_atlassian.utils.oauth import OAuthConfig  # noqa: E402
+from src.mcp_atlassian.utils.oauth_setup import (  # noqa: E402
+    OAuthSetupArgs,
+    run_oauth_flow_returning_config,
+)
 
 logger = logging.getLogger("oauth-refresh")
 
 
-REQUIRED_ENV_VARS = (
-    "ATLASSIAN_OAUTH_CLIENT_ID",
-    "ATLASSIAN_OAUTH_CLIENT_SECRET",
-    "CLOUD_E2E_OAUTH_REFRESH_TOKEN",
-    "CLOUD_E2E_OAUTH_CLOUD_ID",
-)
+def _reauthorize(client_id: str, client_secret: str) -> OAuthConfig | None:
+    """Run the interactive browser authorize flow as a stale-token fallback.
+
+    Returns the new OAuthConfig on success, None on failure.
+    """
+    redirect_uri = os.environ.get(
+        "ATLASSIAN_OAUTH_REDIRECT_URI", "http://localhost:8080/callback"
+    )
+    scope = os.environ.get("ATLASSIAN_OAUTH_SCOPE")
+    if not scope:
+        logger.error(
+            "Cannot re-authorize: ATLASSIAN_OAUTH_SCOPE is not set. "
+            "Set it to the same scope string used at initial registration."
+        )
+        return None
+
+    setup_args = OAuthSetupArgs(
+        client_id=client_id,
+        client_secret=client_secret,
+        redirect_uri=redirect_uri,
+        scope=scope,
+        persist=False,
+    )
+    return run_oauth_flow_returning_config(setup_args)
 
 
 def main() -> int:
-    # basicConfig only fires when invoked as a CLI; importing the script
-    # for tests does NOT add a StreamHandler to the root logger, which
-    # would otherwise interfere with pytest's caplog fixture.
     if not logging.getLogger().hasHandlers():
         logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     parser = argparse.ArgumentParser(
         description=(
-            "Refresh an Atlassian Cloud OAuth access token from a stored "
-            "refresh_token without persisting tokens to disk or the OS keyring."
+            "Refresh an Atlassian Cloud OAuth access token via a configured "
+            "secret store, persist the rotated refresh token, and optionally "
+            "exec a child command with the fresh credentials in its environment."
         )
+    )
+    parser.add_argument(
+        "--store",
+        choices=["env", "1password"],
+        default=os.environ.get("CLOUD_E2E_OAUTH_BACKEND", "env"),
+        help=(
+            "Secret-store backend (default: %(default)s, also configurable via "
+            "CLOUD_E2E_OAUTH_BACKEND). 'env' reads literal env vars (read-only); "
+            "'1password' reads + writes via the op CLI."
+        ),
+    )
+    parser.add_argument(
+        "--op-vault",
+        default=os.environ.get("ATLASSIAN_OAUTH_OP_VAULT"),
+        help="1Password vault UUID (also: ATLASSIAN_OAUTH_OP_VAULT env var).",
+    )
+    parser.add_argument(
+        "--op-item-id",
+        default=os.environ.get("ATLASSIAN_OAUTH_OP_ITEM"),
+        help="1Password item UUID (also: ATLASSIAN_OAUTH_OP_ITEM env var).",
     )
     parser.add_argument(
         "--exec",
@@ -74,78 +131,70 @@ def main() -> int:
             "CLOUD_E2E_OAUTH_CLOUD_ID set in the child environment."
         ),
     )
-    parser.add_argument(
-        "--write-cmd",
-        metavar="SHELL_CMD",
-        help=(
-            "Shell command to run after a successful refresh and before --exec. "
-            "Intended for persisting the rotated refresh_token (Atlassian "
-            "rotates it on every refresh — Cloud refresh tokens are one-shot). "
-            "The command runs with ATLASSIAN_OAUTH_ACCESS_TOKEN, "
-            "ATLASSIAN_OAUTH_REFRESH_TOKEN, ATLASSIAN_OAUTH_CLOUD_ID, and "
-            "ATLASSIAN_OAUTH_EXPIRES_AT in the environment, and stdin tied "
-            "to /dev/null (so `op item edit` doesn't try to parse the "
-            "parent's stdin as a JSON template). If the command exits "
-            "non-zero, oauth_refresh.py exits non-zero without running --exec."
-        ),
-    )
     args = parser.parse_args()
 
-    # argparse.REMAINDER makes `--exec` with no command produce []. Catch
-    # that before we burn a one-shot refresh token on a malformed call
-    # whose JSON output would just go to an uncaptured terminal.
+    # argparse.REMAINDER makes `--exec` with no command produce []. Reject
+    # that before we burn a one-shot refresh token on a malformed call.
     if args.exec is not None and not args.exec:
         logger.error("--exec requires a command")
         return 1
 
-    missing = [name for name in REQUIRED_ENV_VARS if not os.environ.get(name)]
-    if missing:
-        logger.error("Missing required environment variables: %s", ", ".join(missing))
+    try:
+        store = build_store(args.store, op_vault=args.op_vault, op_item=args.op_item_id)
+        creds = store.read()
+    except SecretStoreError as exc:
+        logger.error("%s", exc)
         return 1
 
     config = OAuthConfig(
-        client_id=os.environ["ATLASSIAN_OAUTH_CLIENT_ID"],
-        client_secret=os.environ["ATLASSIAN_OAUTH_CLIENT_SECRET"],
+        client_id=creds.client_id,
+        client_secret=creds.client_secret,
         redirect_uri="",
         scope="",
-        cloud_id=os.environ["CLOUD_E2E_OAUTH_CLOUD_ID"],
-        refresh_token=os.environ["CLOUD_E2E_OAUTH_REFRESH_TOKEN"],
+        cloud_id=creds.cloud_id,
+        refresh_token=creds.refresh_token,
         persist=False,
     )
 
     if not config.refresh_access_token():
-        logger.error("Failed to refresh access token")
-        return 1
-
-    if args.write_cmd:
-        write_env = os.environ.copy()
-        write_env["ATLASSIAN_OAUTH_ACCESS_TOKEN"] = config.access_token or ""
-        write_env["ATLASSIAN_OAUTH_REFRESH_TOKEN"] = config.refresh_token or ""
-        write_env["ATLASSIAN_OAUTH_CLOUD_ID"] = config.cloud_id or ""
-        write_env["ATLASSIAN_OAUTH_EXPIRES_AT"] = (
-            str(config.expires_at) if config.expires_at is not None else ""
-        )
-        result = subprocess.run(  # noqa: S602
-            args.write_cmd,
-            shell=True,
-            env=write_env,
-            stdin=subprocess.DEVNULL,
-            check=False,
-        )
-        if result.returncode != 0:
+        if not store.writable():
             logger.error(
-                "--write-cmd exited %d; aborting before --exec", result.returncode
+                "Refresh failed and the %s store is read-only — re-run "
+                "scripts/oauth_authorize.py --no-persist to mint new tokens, "
+                "or switch to a writable store (--store 1password) for "
+                "automatic re-authorization.",
+                store.name,
             )
-            return result.returncode
+            return 1
+
+        logger.warning(
+            "Refresh failed — falling back to interactive authorize flow. "
+            "A browser window will open; complete consent to mint new tokens."
+        )
+        new_config = _reauthorize(creds.client_id, creds.client_secret)
+        if new_config is None:
+            logger.error("Authorize flow failed; new tokens NOT minted")
+            return 1
+        config = new_config
+
+    if store.writable():
+        try:
+            store.write(
+                access_token=config.access_token or "",
+                refresh_token=config.refresh_token or "",
+                cloud_id=config.cloud_id or "",
+                expires_at=config.expires_at,
+            )
+        except SecretStoreError as exc:
+            logger.error("%s", exc)
+            return 1
 
     if args.exec:
         cmd, *cmd_args = args.exec
         child_env = os.environ.copy()
         child_env["CLOUD_E2E_OAUTH_ACCESS_TOKEN"] = config.access_token or ""
         child_env["CLOUD_E2E_OAUTH_CLOUD_ID"] = config.cloud_id or ""
-        # User-supplied command is the whole point of --exec. Caller has
-        # explicit control over what is invoked.
-        os.execvpe(cmd, [cmd, *cmd_args], child_env)  # noqa: S606
+        os.execvpe(cmd, [cmd, *cmd_args], child_env)
         # execvpe replaces the process; this line only reached if exec fails.
         return 1
 

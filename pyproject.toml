@@ -113,6 +113,10 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 "tests/**/*.py" = ["S", "ANN", "B017"]
 "tests/fixtures/*.py" = ["E501"]
 "src/mcp_atlassian/server.py" = ["E501"]
+# CLI helpers invoke external tools (op, browser callback, exec)
+# intentionally and on user-controlled input; the S-rules don't add
+# signal here.
+"scripts/**/*.py" = ["S"]
 
 [tool.ruff.format]
 quote-style = "double"

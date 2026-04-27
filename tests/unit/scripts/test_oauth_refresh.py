@@ -135,31 +135,105 @@ class TestOAuthRefreshScript:
         assert refresh_calls == []
         assert "--exec requires a command" in caplog.text
 
-    def test_write_cmd_runs_with_rotated_refresh_token_in_env(self):
-        """--write-cmd receives the rotated refresh token via env vars."""
+    def test_store_1password_full_flow_refresh_persist_exec(self):
+        """--store 1password reads via op, refreshes, writes rotated tokens, execs."""
+        import subprocess
+
         mod = _load_script_module()
         argv = [
             "prog",
-            "--write-cmd",
-            "true",
+            "--store",
+            "1password",
+            "--op-vault",
+            "VAULT-UUID",
+            "--op-item-id",
+            "ITEM-UUID",
             "--exec",
             "pytest",
+            "-k",
+            "byo_oauth",
         ]
+
+        op_calls: list[tuple[list[str], dict[str, object]]] = []
+
+        def fake_run(cmd, **kwargs):
+            op_calls.append((list(cmd), dict(kwargs)))
+            result = MagicMock()
+            if list(cmd[:2]) == ["op", "read"]:
+                # Field is the last URL component.
+                field = cmd[2].split("/")[-1]
+                result.stdout = f"stored-{field}\n"
+            result.returncode = 0
+            return result
 
         def fake_refresh(self):
             self.access_token = "fresh-access"
             self.refresh_token = "ROTATED-refresh"
-            self.expires_at = 9999.0
+            self.expires_at = 1234.5
             return True
 
-        captured: dict[str, object] = {}
+        execvpe_calls: list[tuple] = []
 
-        def fake_subprocess_run(*args, **kwargs):
-            captured["args"] = args
-            captured["kwargs"] = kwargs
-            result = MagicMock()
-            result.returncode = 0
-            return result
+        with patch.object(sys, "argv", argv):
+            with patch.dict(os.environ, {}, clear=True):
+                with patch("subprocess.run", side_effect=fake_run):
+                    with patch(
+                        "src.mcp_atlassian.utils.oauth.OAuthConfig.refresh_access_token",
+                        fake_refresh,
+                    ):
+                        with patch(
+                            "os.execvpe",
+                            side_effect=lambda *a, **k: execvpe_calls.append(a),
+                        ):
+                            mod.main()
+
+        # Four `op read` calls (one per field) and one `op item edit`.
+        read_cmds = [cmd for cmd, _ in op_calls if cmd[:2] == ["op", "read"]]
+        edit_cmds = [cmd for cmd, _ in op_calls if cmd[:3] == ["op", "item", "edit"]]
+        assert len(read_cmds) == 4
+        assert len(edit_cmds) == 1
+        edit_cmd = edit_cmds[0]
+        # Rotated refresh_token must appear as discrete arg-list element.
+        assert any("refresh_token=ROTATED-refresh" in arg for arg in edit_cmd)
+        assert any("access_token=fresh-access" in arg for arg in edit_cmd)
+        # No invocation may use shell=True.
+        assert all(kw.get("shell", False) is False for _, kw in op_calls)
+        # `op item edit` must use stdin=DEVNULL.
+        edit_kwargs = next(
+            kw for cmd, kw in op_calls if cmd[:3] == ["op", "item", "edit"]
+        )
+        assert edit_kwargs["stdin"] == subprocess.DEVNULL
+        # Then exec'd pytest with the fresh access token.
+        assert execvpe_calls
+        execvpe_args = execvpe_calls[0]
+        assert execvpe_args[0] == "pytest"
+        assert execvpe_args[2]["CLOUD_E2E_OAUTH_ACCESS_TOKEN"] == "fresh-access"
+
+    def test_store_1password_missing_uuids_errors(self):
+        """--store 1password without --op-vault/--op-item-id errors clearly."""
+        mod = _load_script_module()
+        argv = ["prog", "--store", "1password"]
+
+        with patch.object(sys, "argv", argv):
+            with patch.dict(os.environ, {}, clear=True):
+                with patch.object(mod.logger, "error") as mock_error:
+                    rc = mod.main()
+        assert rc != 0
+        all_messages = " ".join(
+            str(call.args[0]) % call.args[1:]
+            if len(call.args) > 1
+            else str(call.args[0])
+            for call in mock_error.call_args_list
+        )
+        assert "1password" in all_messages.lower()
+
+    def test_stale_refresh_token_with_readonly_store_returns_error(self):
+        """With env store (read-only), refresh failure returns nonzero with guidance."""
+        mod = _load_script_module()
+        argv = ["prog", "--store", "env"]
+
+        def fake_refresh(self):
+            return False
 
         with patch.object(sys, "argv", argv):
             with patch.dict(os.environ, REQUIRED_ENV, clear=True):
@@ -167,60 +241,67 @@ class TestOAuthRefreshScript:
                     "src.mcp_atlassian.utils.oauth.OAuthConfig.refresh_access_token",
                     fake_refresh,
                 ):
-                    with patch("subprocess.run", side_effect=fake_subprocess_run):
-                        with patch("os.execvpe"):
-                            mod.main()
+                    with patch.object(mod.logger, "error") as mock_error:
+                        rc = mod.main()
+        assert rc != 0
+        all_messages = " ".join(
+            str(call.args[0]) % call.args[1:]
+            if len(call.args) > 1
+            else str(call.args[0])
+            for call in mock_error.call_args_list
+        )
+        assert "oauth_authorize.py" in all_messages
 
-        assert captured["args"][0] == "true"
-        kwargs = captured["kwargs"]
-        env = kwargs["env"]
-        assert env["ATLASSIAN_OAUTH_ACCESS_TOKEN"] == "fresh-access"
-        assert env["ATLASSIAN_OAUTH_REFRESH_TOKEN"] == "ROTATED-refresh"
-        assert env["ATLASSIAN_OAUTH_CLOUD_ID"] == "test-cloud-id"
-        assert env["ATLASSIAN_OAUTH_EXPIRES_AT"] == "9999.0"
-        # stdin must be DEVNULL so `op item edit` doesn't try to parse
-        # the parent's stdin as a JSON template.
-        import subprocess
-
-        assert kwargs["stdin"] == subprocess.DEVNULL
-
-    def test_write_cmd_failure_aborts_before_exec(self, caplog):
-        """If --write-cmd exits nonzero, --exec must not run."""
-        import logging
-
+    def test_stale_refresh_token_with_writable_store_invokes_authorize(self):
+        """1P store + refresh failure → authorize flow runs and persists new tokens."""
         mod = _load_script_module()
-        argv = ["prog", "--write-cmd", "false", "--exec", "pytest"]
+        argv = [
+            "prog",
+            "--store",
+            "1password",
+            "--op-vault",
+            "V",
+            "--op-item-id",
+            "I",
+        ]
 
-        def fake_refresh(self):
-            self.access_token = "fresh"
-            self.refresh_token = "rotated"
-            self.expires_at = 1.0
-            return True
-
-        exec_calls = []
-
-        def fake_subprocess_run(*_args, **_kwargs):
+        def fake_run(cmd, **kwargs):
             result = MagicMock()
-            result.returncode = 7
+            if list(cmd[:2]) == ["op", "read"]:
+                field = cmd[2].split("/")[-1]
+                result.stdout = f"stored-{field}\n"
+            result.returncode = 0
             return result
 
-        with caplog.at_level(logging.ERROR):
-            with patch.object(sys, "argv", argv):
-                with patch.dict(os.environ, REQUIRED_ENV, clear=True):
+        def fake_refresh(self):
+            return False
+
+        new_config = MagicMock()
+        new_config.access_token = "post-authorize-access"
+        new_config.refresh_token = "post-authorize-refresh"
+        new_config.cloud_id = "post-authorize-cloud"
+        new_config.expires_at = 9999.0
+
+        with patch.object(sys, "argv", argv):
+            with patch.dict(
+                os.environ,
+                {"ATLASSIAN_OAUTH_SCOPE": "read:jira-work offline_access"},
+                clear=True,
+            ):
+                with patch("subprocess.run", side_effect=fake_run):
                     with patch(
                         "src.mcp_atlassian.utils.oauth.OAuthConfig.refresh_access_token",
                         fake_refresh,
                     ):
-                        with patch("subprocess.run", side_effect=fake_subprocess_run):
-                            with patch(
-                                "os.execvpe",
-                                side_effect=lambda *a, **k: exec_calls.append(a),
-                            ):
-                                rc = mod.main()
+                        with patch.object(
+                            mod,
+                            "run_oauth_flow_returning_config",
+                            return_value=new_config,
+                        ) as mock_authorize:
+                            rc = mod.main()
 
-        assert rc == 7
-        assert exec_calls == []
-        assert "--write-cmd exited" in caplog.text
+        assert rc == 0
+        mock_authorize.assert_called_once()
 
     def test_exec_mode_sets_env_and_execs(self):
         """--exec passes refreshed access_token + cloud_id into child env."""
