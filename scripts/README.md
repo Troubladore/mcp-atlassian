@@ -64,12 +64,39 @@ Run the BYO OAuth E2E tests with a fresh token:
 ```bash
 op run --env-file=.env -- \
     uv run python scripts/oauth_refresh.py \
+        --write-cmd 'op item edit h4uocvrp4sowktnke4zwu27axq \
+            "OAuth Credentials.access_token=$ATLASSIAN_OAUTH_ACCESS_TOKEN" \
+            "OAuth Credentials.refresh_token=$ATLASSIAN_OAUTH_REFRESH_TOKEN"' \
         --exec uv run pytest tests/e2e/cloud/ -k byo_oauth --cloud-e2e -W error
 ```
 
 The `op run` wrapper substitutes `op://...` references in `.env` to literal
 values before this script sees them. Without 1Password, populate the
 `CLOUD_E2E_OAUTH_*` and `ATLASSIAN_OAUTH_*` vars directly.
+
+### `--write-cmd` and Atlassian's refresh-token rotation
+
+Atlassian Cloud rotates the refresh token on every refresh — the old token is
+invalidated as soon as a new one is issued. If the rotated token isn't
+persisted somewhere, the next run sees a stale refresh token and fails with
+`401 Unauthorized` / `403 Forbidden` from the token endpoint.
+
+Default JSON-stdout mode preserves the rotated token (it's included in the
+JSON payload — pipe it to your secrets store). For `--exec` mode, use
+`--write-cmd` to update storage between refresh and exec; `--exec` cannot
+emit the token itself because it replaces the process.
+
+The write command runs:
+
+- After a successful refresh and before `--exec`.
+- With `ATLASSIAN_OAUTH_ACCESS_TOKEN`, `ATLASSIAN_OAUTH_REFRESH_TOKEN`, `ATLASSIAN_OAUTH_CLOUD_ID`, and `ATLASSIAN_OAUTH_EXPIRES_AT` in the environment.
+- With `stdin` redirected to `/dev/null` (so `op item edit` does not try to parse the parent's stdin as a JSON template — see the [op subprocess gotcha](#op-item-edit-scripting-gotchas) below).
+- Through `/bin/sh -c` (`shell=True`), so shell features like `$VAR` expansion and quoting work as expected.
+
+If the write command exits non-zero, `oauth_refresh.py` exits with the same
+code and does **not** run `--exec`. This is deliberate: if storage didn't
+update with the rotated refresh token, running the test would just consume
+another refresh and leave you in the same broken state.
 
 ---
 

@@ -34,6 +34,7 @@ import argparse
 import json
 import logging
 import os
+import subprocess
 import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -41,7 +42,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.mcp_atlassian.utils.oauth import OAuthConfig
 
 logger = logging.getLogger("oauth-refresh")
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 
 REQUIRED_ENV_VARS = (
@@ -53,6 +53,12 @@ REQUIRED_ENV_VARS = (
 
 
 def main() -> int:
+    # basicConfig only fires when invoked as a CLI; importing the script
+    # for tests does NOT add a StreamHandler to the root logger, which
+    # would otherwise interfere with pytest's caplog fixture.
+    if not logging.getLogger().hasHandlers():
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
     parser = argparse.ArgumentParser(
         description=(
             "Refresh an Atlassian Cloud OAuth access token from a stored "
@@ -68,7 +74,29 @@ def main() -> int:
             "CLOUD_E2E_OAUTH_CLOUD_ID set in the child environment."
         ),
     )
+    parser.add_argument(
+        "--write-cmd",
+        metavar="SHELL_CMD",
+        help=(
+            "Shell command to run after a successful refresh and before --exec. "
+            "Intended for persisting the rotated refresh_token (Atlassian "
+            "rotates it on every refresh — Cloud refresh tokens are one-shot). "
+            "The command runs with ATLASSIAN_OAUTH_ACCESS_TOKEN, "
+            "ATLASSIAN_OAUTH_REFRESH_TOKEN, ATLASSIAN_OAUTH_CLOUD_ID, and "
+            "ATLASSIAN_OAUTH_EXPIRES_AT in the environment, and stdin tied "
+            "to /dev/null (so `op item edit` doesn't try to parse the "
+            "parent's stdin as a JSON template). If the command exits "
+            "non-zero, oauth_refresh.py exits non-zero without running --exec."
+        ),
+    )
     args = parser.parse_args()
+
+    # argparse.REMAINDER makes `--exec` with no command produce []. Catch
+    # that before we burn a one-shot refresh token on a malformed call
+    # whose JSON output would just go to an uncaptured terminal.
+    if args.exec is not None and not args.exec:
+        logger.error("--exec requires a command")
+        return 1
 
     missing = [name for name in REQUIRED_ENV_VARS if not os.environ.get(name)]
     if missing:
@@ -88,6 +116,27 @@ def main() -> int:
     if not config.refresh_access_token():
         logger.error("Failed to refresh access token")
         return 1
+
+    if args.write_cmd:
+        write_env = os.environ.copy()
+        write_env["ATLASSIAN_OAUTH_ACCESS_TOKEN"] = config.access_token or ""
+        write_env["ATLASSIAN_OAUTH_REFRESH_TOKEN"] = config.refresh_token or ""
+        write_env["ATLASSIAN_OAUTH_CLOUD_ID"] = config.cloud_id or ""
+        write_env["ATLASSIAN_OAUTH_EXPIRES_AT"] = (
+            str(config.expires_at) if config.expires_at is not None else ""
+        )
+        result = subprocess.run(  # noqa: S602
+            args.write_cmd,
+            shell=True,
+            env=write_env,
+            stdin=subprocess.DEVNULL,
+            check=False,
+        )
+        if result.returncode != 0:
+            logger.error(
+                "--write-cmd exited %d; aborting before --exec", result.returncode
+            )
+            return result.returncode
 
     if args.exec:
         cmd, *cmd_args = args.exec

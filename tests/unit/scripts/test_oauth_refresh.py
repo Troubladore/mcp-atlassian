@@ -15,7 +15,7 @@ import importlib.util
 import json
 import os
 import sys
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 def _load_script_module():
@@ -39,24 +39,26 @@ REQUIRED_ENV = {
 
 
 class TestOAuthRefreshScript:
-    def test_errors_when_required_env_var_missing(self, caplog):
+    def test_errors_when_required_env_var_missing(self):
         """Missing env vars produce a clear error and non-zero exit."""
-        import logging
-
         mod = _load_script_module()
         argv = ["prog"]
-        # Missing ATLASSIAN_OAUTH_CLIENT_SECRET
         env = {
             k: v
             for k, v in REQUIRED_ENV.items()
             if k != "ATLASSIAN_OAUTH_CLIENT_SECRET"
         }
-        with caplog.at_level(logging.ERROR):
-            with patch.object(sys, "argv", argv):
-                with patch.dict(os.environ, env, clear=True):
+        with patch.object(sys, "argv", argv):
+            with patch.dict(os.environ, env, clear=True):
+                with patch.object(mod.logger, "error") as mock_error:
                     rc = mod.main()
         assert rc != 0
-        assert "ATLASSIAN_OAUTH_CLIENT_SECRET" in caplog.text
+        # Logger called with format-string + args, not pre-formatted.
+        all_messages = " ".join(
+            (call.args[0] % call.args[1:]) if len(call.args) > 1 else str(call.args[0])
+            for call in mock_error.call_args_list
+        )
+        assert "ATLASSIAN_OAUTH_CLIENT_SECRET" in all_messages
 
     def test_emits_refreshed_token_as_json(self, capsys):
         """Default mode prints a JSON token block to stdout."""
@@ -100,6 +102,125 @@ class TestOAuthRefreshScript:
                 ):
                     rc = mod.main()
         assert rc != 0
+
+    def test_exec_with_no_command_errors_before_refresh(self, caplog):
+        """--exec with no command must reject early, before consuming refresh token.
+
+        argparse.REMAINDER produces args.exec == [] when --exec is passed
+        with nothing after it. Falling through to default JSON mode would
+        consume (and rotate) the refresh token while silently printing it
+        to a terminal the caller didn't intend to capture.
+        """
+        import logging
+
+        mod = _load_script_module()
+        argv = ["prog", "--exec"]
+
+        refresh_calls = []
+
+        def fake_refresh(self):
+            refresh_calls.append(1)
+            return True
+
+        with caplog.at_level(logging.ERROR):
+            with patch.object(sys, "argv", argv):
+                with patch.dict(os.environ, REQUIRED_ENV, clear=True):
+                    with patch(
+                        "src.mcp_atlassian.utils.oauth.OAuthConfig.refresh_access_token",
+                        fake_refresh,
+                    ):
+                        rc = mod.main()
+
+        assert rc != 0
+        assert refresh_calls == []
+        assert "--exec requires a command" in caplog.text
+
+    def test_write_cmd_runs_with_rotated_refresh_token_in_env(self):
+        """--write-cmd receives the rotated refresh token via env vars."""
+        mod = _load_script_module()
+        argv = [
+            "prog",
+            "--write-cmd",
+            "true",
+            "--exec",
+            "pytest",
+        ]
+
+        def fake_refresh(self):
+            self.access_token = "fresh-access"
+            self.refresh_token = "ROTATED-refresh"
+            self.expires_at = 9999.0
+            return True
+
+        captured: dict[str, object] = {}
+
+        def fake_subprocess_run(*args, **kwargs):
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+            result = MagicMock()
+            result.returncode = 0
+            return result
+
+        with patch.object(sys, "argv", argv):
+            with patch.dict(os.environ, REQUIRED_ENV, clear=True):
+                with patch(
+                    "src.mcp_atlassian.utils.oauth.OAuthConfig.refresh_access_token",
+                    fake_refresh,
+                ):
+                    with patch("subprocess.run", side_effect=fake_subprocess_run):
+                        with patch("os.execvpe"):
+                            mod.main()
+
+        assert captured["args"][0] == "true"
+        kwargs = captured["kwargs"]
+        env = kwargs["env"]
+        assert env["ATLASSIAN_OAUTH_ACCESS_TOKEN"] == "fresh-access"
+        assert env["ATLASSIAN_OAUTH_REFRESH_TOKEN"] == "ROTATED-refresh"
+        assert env["ATLASSIAN_OAUTH_CLOUD_ID"] == "test-cloud-id"
+        assert env["ATLASSIAN_OAUTH_EXPIRES_AT"] == "9999.0"
+        # stdin must be DEVNULL so `op item edit` doesn't try to parse
+        # the parent's stdin as a JSON template.
+        import subprocess
+
+        assert kwargs["stdin"] == subprocess.DEVNULL
+
+    def test_write_cmd_failure_aborts_before_exec(self, caplog):
+        """If --write-cmd exits nonzero, --exec must not run."""
+        import logging
+
+        mod = _load_script_module()
+        argv = ["prog", "--write-cmd", "false", "--exec", "pytest"]
+
+        def fake_refresh(self):
+            self.access_token = "fresh"
+            self.refresh_token = "rotated"
+            self.expires_at = 1.0
+            return True
+
+        exec_calls = []
+
+        def fake_subprocess_run(*_args, **_kwargs):
+            result = MagicMock()
+            result.returncode = 7
+            return result
+
+        with caplog.at_level(logging.ERROR):
+            with patch.object(sys, "argv", argv):
+                with patch.dict(os.environ, REQUIRED_ENV, clear=True):
+                    with patch(
+                        "src.mcp_atlassian.utils.oauth.OAuthConfig.refresh_access_token",
+                        fake_refresh,
+                    ):
+                        with patch("subprocess.run", side_effect=fake_subprocess_run):
+                            with patch(
+                                "os.execvpe",
+                                side_effect=lambda *a, **k: exec_calls.append(a),
+                            ):
+                                rc = mod.main()
+
+        assert rc == 7
+        assert exec_calls == []
+        assert "--write-cmd exited" in caplog.text
 
     def test_exec_mode_sets_env_and_execs(self):
         """--exec passes refreshed access_token + cloud_id into child env."""
