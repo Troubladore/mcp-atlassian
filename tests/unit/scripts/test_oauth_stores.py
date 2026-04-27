@@ -156,3 +156,96 @@ class TestOnePasswordStore:
                 assert "op read" in str(exc).lower() or "1password" in str(exc).lower()
             else:
                 raise AssertionError("expected SecretStoreError")
+
+    def test_write_includes_vault_flag(self):
+        """`op item edit` invocation must scope to the vault, not just the item.
+
+        Read uses op://VAULT/ITEM/field — write should be symmetric.
+        """
+        mod = _load_module()
+        captured: list[list[str]] = []
+
+        def fake_run(cmd, **_kwargs):
+            captured.append(list(cmd))
+            result = MagicMock()
+            result.returncode = 0
+            return result
+
+        with patch("subprocess.run", side_effect=fake_run):
+            mod.OnePasswordStore(vault="VAULT-UUID", item="ITEM-UUID").write(
+                access_token="a",
+                refresh_token="r",
+                cloud_id="c",
+                expires_at=1.0,
+            )
+
+        cmd = captured[0]
+        assert "--vault" in cmd
+        assert "VAULT-UUID" in cmd
+        # --vault must appear immediately before the value.
+        idx = cmd.index("--vault")
+        assert cmd[idx + 1] == "VAULT-UUID"
+
+    def test_verify_refresh_token_round_trips_via_op_read(self):
+        """verify_refresh_token re-reads the refresh_token field and asserts match."""
+        mod = _load_module()
+
+        captured: list[list[str]] = []
+
+        def fake_run(cmd, **_kwargs):
+            captured.append(list(cmd))
+            result = MagicMock()
+            result.stdout = "PERSISTED-TOKEN\n"
+            result.returncode = 0
+            return result
+
+        with patch("subprocess.run", side_effect=fake_run):
+            mod.OnePasswordStore(vault="V", item="I").verify_refresh_token(
+                "PERSISTED-TOKEN"
+            )
+
+        # Must invoke `op read` against the refresh_token field.
+        assert captured[0][:2] == ["op", "read"]
+        assert "refresh_token" in captured[0][2]
+
+    def test_verify_refresh_token_raises_on_mismatch(self):
+        """If 1Password returns a different value than we wrote, abort loudly."""
+        mod = _load_module()
+
+        def fake_run(*_a, **_k):
+            result = MagicMock()
+            result.stdout = "DIFFERENT-VALUE\n"
+            result.returncode = 0
+            return result
+
+        with patch("subprocess.run", side_effect=fake_run):
+            try:
+                mod.OnePasswordStore(vault="V", item="I").verify_refresh_token(
+                    "EXPECTED-TOKEN"
+                )
+            except mod.SecretStoreError as exc:
+                assert (
+                    "refresh_token" in str(exc).lower()
+                    or "mismatch" in str(exc).lower()
+                )
+            else:
+                raise AssertionError("expected SecretStoreError on round-trip mismatch")
+
+    def test_lock_path_is_unique_per_item(self):
+        """Same item UUID → same lock path; different items → different paths."""
+        mod = _load_module()
+        s1 = mod.OnePasswordStore(vault="A", item="ITEM-1")
+        s2 = mod.OnePasswordStore(vault="B", item="ITEM-1")
+        s3 = mod.OnePasswordStore(vault="A", item="ITEM-2")
+        assert s1.lock_path == s2.lock_path
+        assert s1.lock_path != s3.lock_path
+
+    def test_env_store_has_no_lock_path(self):
+        mod = _load_module()
+        assert mod.EnvStore().lock_path is None
+
+    def test_env_store_verify_is_noop(self):
+        """EnvStore.verify_refresh_token does nothing (read-only store)."""
+        mod = _load_module()
+        # Should not raise, should not call subprocess.
+        mod.EnvStore().verify_refresh_token("anything")

@@ -1156,12 +1156,18 @@ class TestDataCenterOAuth:
         assert config.cloud_id is None
 
     def test_from_env_dc_defaults_redirect_and_scope(self):
-        """DC from_env provides default redirect_uri and scope."""
+        """DC from_env provides default redirect_uri and scope.
+
+        Uses clear=True to be hermetic against earlier tests that may have
+        set ATLASSIAN_OAUTH_REDIRECT_URI or ATLASSIAN_OAUTH_SCOPE without
+        cleaning up — this test specifically asserts the DEFAULT path,
+        which only triggers when those env vars are absent.
+        """
         env = {
             "ATLASSIAN_OAUTH_CLIENT_ID": "dc-client",
             "ATLASSIAN_OAUTH_CLIENT_SECRET": "dc-secret",
         }
-        with patch.dict("os.environ", env, clear=False):
+        with patch.dict("os.environ", env, clear=True):
             config = OAuthConfig.from_env(
                 service_url="https://jira.corp.com",
                 service_type="jira",

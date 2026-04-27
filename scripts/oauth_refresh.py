@@ -45,10 +45,13 @@ Bootstrap (first-time setup) still uses ``scripts/oauth_authorize.py
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import json
 import logging
 import os
 import sys
+from collections.abc import Iterator
 
 _SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _SCRIPTS_DIR)
@@ -63,6 +66,30 @@ from src.mcp_atlassian.utils.oauth_setup import (  # noqa: E402
 )
 
 logger = logging.getLogger("oauth-refresh")
+
+
+@contextlib.contextmanager
+def _store_lock(lock_path: str | None) -> Iterator[None]:
+    """Hold an exclusive lock for the duration of the critical section.
+
+    Two processes targeting the same secret store would otherwise consume
+    the same refresh_token, the second one's refresh would fail (Atlassian
+    invalidated the token when the first refresh succeeded), and one of
+    them would burn a rotation that never gets persisted. The lock
+    serializes read → refresh → write per-store.
+    """
+    if lock_path is None:
+        yield
+        return
+    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
 
 
 def _reauthorize(client_id: str, client_secret: str) -> OAuthConfig | None:
@@ -123,6 +150,16 @@ def main() -> int:
         help="1Password item UUID (also: ATLASSIAN_OAUTH_OP_ITEM env var).",
     )
     parser.add_argument(
+        "--allow-rotation-loss",
+        action="store_true",
+        help=(
+            "Permit --exec on a read-only store (e.g. 'env') even though the "
+            "rotated refresh_token cannot be persisted. The next run will see "
+            "a stale refresh_token and require re-authorization. Only use this "
+            "in CI runners where credentials are injected per-job."
+        ),
+    )
+    parser.add_argument(
         "--exec",
         nargs=argparse.REMAINDER,
         metavar="CMD",
@@ -141,53 +178,71 @@ def main() -> int:
 
     try:
         store = build_store(args.store, op_vault=args.op_vault, op_item=args.op_item_id)
-        creds = store.read()
     except SecretStoreError as exc:
         logger.error("%s", exc)
         return 1
 
-    config = OAuthConfig(
-        client_id=creds.client_id,
-        client_secret=creds.client_secret,
-        redirect_uri="",
-        scope="",
-        cloud_id=creds.cloud_id,
-        refresh_token=creds.refresh_token,
-        persist=False,
-    )
-
-    if not config.refresh_access_token():
-        if not store.writable():
-            logger.error(
-                "Refresh failed and the %s store is read-only — re-run "
-                "scripts/oauth_authorize.py --no-persist to mint new tokens, "
-                "or switch to a writable store (--store 1password) for "
-                "automatic re-authorization.",
-                store.name,
-            )
-            return 1
-
-        logger.warning(
-            "Refresh failed — falling back to interactive authorize flow. "
-            "A browser window will open; complete consent to mint new tokens."
+    if args.exec and not store.writable() and not args.allow_rotation_loss:
+        logger.error(
+            "Refusing --exec with the read-only %s store: pytest would "
+            "consume the refresh_token, Atlassian would rotate it, but the "
+            "rotated value cannot be persisted back to the store — the next "
+            "run would fail. Either switch to --store 1password, or pass "
+            "--allow-rotation-loss to opt into the rotation-drop (CI only).",
+            store.name,
         )
-        new_config = _reauthorize(creds.client_id, creds.client_secret)
-        if new_config is None:
-            logger.error("Authorize flow failed; new tokens NOT minted")
-            return 1
-        config = new_config
+        return 1
 
-    if store.writable():
+    with _store_lock(store.lock_path):
         try:
-            store.write(
-                access_token=config.access_token or "",
-                refresh_token=config.refresh_token or "",
-                cloud_id=config.cloud_id or "",
-                expires_at=config.expires_at,
-            )
+            creds = store.read()
         except SecretStoreError as exc:
             logger.error("%s", exc)
             return 1
+
+        config = OAuthConfig(
+            client_id=creds.client_id,
+            client_secret=creds.client_secret,
+            redirect_uri="",
+            scope="",
+            cloud_id=creds.cloud_id,
+            refresh_token=creds.refresh_token,
+            persist=False,
+        )
+
+        if not config.refresh_access_token():
+            if not store.writable():
+                logger.error(
+                    "Refresh failed and the %s store is read-only — re-run "
+                    "scripts/oauth_authorize.py --no-persist to mint new tokens, "
+                    "or switch to a writable store (--store 1password) for "
+                    "automatic re-authorization.",
+                    store.name,
+                )
+                return 1
+
+            logger.warning(
+                "Refresh failed — falling back to interactive authorize flow. "
+                "A browser window will open; complete consent to mint new tokens."
+            )
+            new_config = _reauthorize(creds.client_id, creds.client_secret)
+            if new_config is None:
+                logger.error("Authorize flow failed; new tokens NOT minted")
+                return 1
+            config = new_config
+
+        if store.writable():
+            try:
+                store.write(
+                    access_token=config.access_token or "",
+                    refresh_token=config.refresh_token or "",
+                    cloud_id=config.cloud_id or "",
+                    expires_at=config.expires_at,
+                )
+                store.verify_refresh_token(config.refresh_token or "")
+            except SecretStoreError as exc:
+                logger.error("%s", exc)
+                return 1
 
     if args.exec:
         cmd, *cmd_args = args.exec

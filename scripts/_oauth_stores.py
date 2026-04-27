@@ -30,9 +30,11 @@ template-via-stdin mode.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -53,6 +55,7 @@ class Creds:
 
 class SecretStore(Protocol):
     name: str
+    lock_path: str | None
 
     def read(self) -> Creds: ...
     def write(
@@ -64,6 +67,7 @@ class SecretStore(Protocol):
         expires_at: float | None,
     ) -> None: ...
     def writable(self) -> bool: ...
+    def verify_refresh_token(self, expected: str) -> None: ...
 
 
 _ENV_FIELDS = {
@@ -76,6 +80,7 @@ _ENV_FIELDS = {
 
 class EnvStore:
     name = "env"
+    lock_path: str | None = None
 
     def read(self) -> Creds:
         missing = [
@@ -110,6 +115,10 @@ class EnvStore:
     def writable(self) -> bool:
         return False
 
+    def verify_refresh_token(self, expected: str) -> None:  # noqa: ARG002
+        # Read-only store; nothing to verify.
+        return
+
 
 class OnePasswordStore:
     name = "1password"
@@ -126,6 +135,15 @@ class OnePasswordStore:
         self.item = item
         self.section_creds = section_creds
         self.section_oauth = section_oauth
+        # Same-machine lock keyed by item UUID. Two processes targeting the
+        # same 1Password item will serialize the read-refresh-write critical
+        # section, so neither consumes the other's rotated refresh_token.
+        # Cross-machine concurrency is out of scope (would require a
+        # distributed lock or separate per-runner credentials).
+        digest = hashlib.sha256(item.encode("utf-8")).hexdigest()[:16]
+        self.lock_path = os.path.join(
+            tempfile.gettempdir(), f"mcp_atlassian_oauth_{digest}.lock"
+        )
 
     def _op_read(self, ref: str) -> str:
         # `op` is invoked by name (resolved via PATH); list argv prevents
@@ -173,6 +191,8 @@ class OnePasswordStore:
             "item",
             "edit",
             self.item,
+            "--vault",
+            self.vault,
             f"{self.section_oauth}.access_token={access_token}",
             f"{self.section_oauth}.refresh_token={refresh_token}",
             f"{self.section_oauth}.cloud_id={cloud_id}",
@@ -190,6 +210,25 @@ class OnePasswordStore:
 
     def writable(self) -> bool:
         return True
+
+    def verify_refresh_token(self, expected: str) -> None:
+        """Re-read refresh_token from 1Password and assert it matches.
+
+        Closes the gap where ``op item edit`` exits 0 but the value didn't
+        actually persist (e.g. a concurrent writer overwrote it, or the
+        item shape changed). Without this, the next run might fall back
+        to the consent flow even though we thought we were done.
+        """
+        actual = self._op_read(f"op://{self.vault}/{self.item}/refresh_token")
+        if actual != expected:
+            msg = (
+                "Persisted refresh_token does not match what was just written. "
+                "Either a concurrent process overwrote the field, or the "
+                "OnePasswordStore section/field labels diverged from the "
+                "1Password item shape. Aborting before pytest so the next "
+                "run does not fall back to consent."
+            )
+            raise SecretStoreError(msg)
 
 
 def build_store(

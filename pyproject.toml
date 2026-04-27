@@ -113,10 +113,15 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 "tests/**/*.py" = ["S", "ANN", "B017"]
 "tests/fixtures/*.py" = ["E501"]
 "src/mcp_atlassian/server.py" = ["E501"]
-# CLI helpers invoke external tools (op, browser callback, exec)
-# intentionally and on user-controlled input; the S-rules don't add
-# signal here.
-"scripts/**/*.py" = ["S"]
+# CLI helpers invoke external tools (op, browser callback, exec) intentionally
+# and on user-controlled input. Narrow the suppressions to the specific
+# subprocess/exec rules that fire — keep all other Bandit-family checks
+# (input validation, hash strength, SSL config, etc.) active.
+#   S101 — assertion statements (used in test-style helpers under scripts/)
+#   S603 — subprocess call: untrusted input (user passes argv flags)
+#   S606 — Starting a process without a shell (os.execvpe is the point)
+#   S607 — Starting a process with a partial executable path (`op` via PATH)
+"scripts/**/*.py" = ["S101", "S603", "S606", "S607"]
 
 [tool.ruff.format]
 quote-style = "double"
