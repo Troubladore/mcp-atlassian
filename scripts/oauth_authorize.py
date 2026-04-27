@@ -43,7 +43,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.mcp_atlassian.utils.oauth_setup import (
     OAuthSetupArgs,
-    run_oauth_flow,
     run_oauth_flow_returning_config,
 )
 from src.mcp_atlassian.utils.urls import is_atlassian_cloud_url
@@ -144,11 +143,11 @@ def main() -> int:
         persist=not args.no_persist,
     )
 
-    if args.no_persist:
-        oauth_config = run_oauth_flow_returning_config(setup_args)
-        if oauth_config is None:
-            return 1
+    oauth_config = run_oauth_flow_returning_config(setup_args)
+    if oauth_config is None:
+        return 1
 
+    if args.no_persist:
         token_block: dict[str, object] = {
             "access_token": oauth_config.access_token,
             "refresh_token": oauth_config.refresh_token,
@@ -160,10 +159,8 @@ def main() -> int:
             token_block["cloud_id"] = oauth_config.cloud_id
 
         print(json.dumps(token_block, indent=2))
-        return 0
 
-    success = run_oauth_flow(setup_args)
-    return 0 if success else 1
+    return 0
 
 
 if __name__ == "__main__":

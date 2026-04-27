@@ -40,8 +40,8 @@ class TestOAuthAuthorizeScript:
             "WRITE",
         ]
         with patch.object(sys, "argv", argv):
-            with patch.object(mod, "run_oauth_flow") as mock_flow:
-                mock_flow.return_value = True
+            with patch.object(mod, "run_oauth_flow_returning_config") as mock_flow:
+                mock_flow.return_value = MagicMock()
                 result = mod.main()
         assert result == 0
         mock_flow.assert_called_once()
@@ -65,8 +65,8 @@ class TestOAuthAuthorizeScript:
             "read:jira-work offline_access",
         ]
         with patch.object(sys, "argv", argv):
-            with patch.object(mod, "run_oauth_flow") as mock_flow:
-                mock_flow.return_value = True
+            with patch.object(mod, "run_oauth_flow_returning_config") as mock_flow:
+                mock_flow.return_value = MagicMock()
                 result = mod.main()
         assert result == 0
         mock_flow.assert_called_once()
@@ -91,8 +91,8 @@ class TestOAuthAuthorizeScript:
         }
         with patch.object(sys, "argv", argv):
             with patch.dict(os.environ, env, clear=False):
-                with patch.object(mod, "run_oauth_flow") as mock_flow:
-                    mock_flow.return_value = True
+                with patch.object(mod, "run_oauth_flow_returning_config") as mock_flow:
+                    mock_flow.return_value = MagicMock()
                     result = mod.main()
         assert result == 0
         mock_flow.assert_called_once()
@@ -116,8 +116,8 @@ class TestOAuthAuthorizeScript:
             "WRITE",
         ]
         with patch.object(sys, "argv", argv):
-            with patch.object(mod, "run_oauth_flow") as mock_flow:
-                mock_flow.return_value = True
+            with patch.object(mod, "run_oauth_flow_returning_config") as mock_flow:
+                mock_flow.return_value = MagicMock()
                 mod.main()
         # No warning about offline_access for DC
         assert "offline_access" not in caplog.text
@@ -160,8 +160,8 @@ class TestOAuthAuthorizeScript:
             "read:jira-work offline_access",
         ]
         with patch.object(sys, "argv", argv):
-            with patch.object(mod, "run_oauth_flow") as mock_flow:
-                mock_flow.return_value = True
+            with patch.object(mod, "run_oauth_flow_returning_config") as mock_flow:
+                mock_flow.return_value = MagicMock()
                 mod.main()
         mock_flow.assert_called_once()
         args = mock_flow.call_args[0][0]

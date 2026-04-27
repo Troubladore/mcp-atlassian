@@ -90,9 +90,6 @@ def main() -> int:
         return 1
 
     if args.exec:
-        if not args.exec:
-            logger.error("--exec requires a command")
-            return 1
         cmd, *cmd_args = args.exec
         child_env = os.environ.copy()
         child_env["CLOUD_E2E_OAUTH_ACCESS_TOKEN"] = config.access_token or ""
