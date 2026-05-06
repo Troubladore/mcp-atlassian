@@ -262,6 +262,86 @@ class TestOAuthRefreshScript:
         )
         assert "oauth_authorize.py" in all_messages
 
+    def test_reauthorize_flag_skips_refresh_and_invokes_authorize(self):
+        """--reauthorize bypasses refresh and goes straight to authorize.
+
+        Use case: the operator just added scopes to their Atlassian app.
+        A normal refresh would mint a new access_token under the OLD
+        scopes; only a fresh authorize gets the new ones.
+        """
+        mod = _load_script_module()
+        argv = [
+            "prog",
+            "--store",
+            "1password",
+            "--op-vault",
+            "V",
+            "--op-item-id",
+            "I",
+            "--reauthorize",
+        ]
+
+        refresh_calls = []
+
+        def fake_refresh(self):
+            refresh_calls.append(1)
+            return True
+
+        def fake_run(cmd, **_kwargs):
+            result = MagicMock()
+            result.returncode = 0
+            if list(cmd[:2]) == ["op", "read"]:
+                ref = cmd[2]
+                if ref.endswith("/refresh_token"):
+                    # Verify-after-write returns the new value.
+                    result.stdout = "post-authorize-refresh\n"
+                else:
+                    result.stdout = f"value-of-{ref.split('/')[-1]}\n"
+            return result
+
+        new_config = MagicMock()
+        new_config.access_token = "post-authorize-access"
+        new_config.refresh_token = "post-authorize-refresh"
+        new_config.cloud_id = "post-authorize-cloud"
+        new_config.expires_at = 9999.0
+
+        with patch.object(sys, "argv", argv):
+            with patch.dict(
+                os.environ,
+                {"ATLASSIAN_OAUTH_SCOPE": "read:jira-work offline_access"},
+                clear=True,
+            ):
+                with patch("subprocess.run", side_effect=fake_run):
+                    with patch(
+                        "src.mcp_atlassian.utils.oauth.OAuthConfig.refresh_access_token",
+                        fake_refresh,
+                    ):
+                        with patch.object(
+                            mod,
+                            "run_oauth_flow_returning_config",
+                            return_value=new_config,
+                        ) as mock_authorize:
+                            rc = mod.main()
+
+        assert rc == 0
+        # Refresh must NOT be called when --reauthorize is set.
+        assert refresh_calls == []
+        # Authorize must run.
+        mock_authorize.assert_called_once()
+
+    def test_reauthorize_with_readonly_store_errors(self):
+        """--reauthorize on a read-only store errors — nowhere to write."""
+        mod = _load_script_module()
+        argv = ["prog", "--store", "env", "--reauthorize"]
+
+        with patch.object(sys, "argv", argv):
+            with patch.dict(os.environ, REQUIRED_ENV, clear=True):
+                with patch.object(mod.logger, "error") as mock_error:
+                    rc = mod.main()
+        assert rc != 0
+        all_messages = " ".join(str(call.args[0]) for call in mock_error.call_args_list)
+        assert "writable" in all_messages.lower() or "read-only" in all_messages.lower()
+
     def test_env_store_with_exec_refuses_without_allow_rotation_loss(self):
         """--store env --exec refuses by default — rotation would be lost."""
         mod = _load_script_module()

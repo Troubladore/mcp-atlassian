@@ -150,6 +150,18 @@ def main() -> int:
         help="1Password item UUID (also: ATLASSIAN_OAUTH_OP_ITEM env var).",
     )
     parser.add_argument(
+        "--reauthorize",
+        action="store_true",
+        help=(
+            "Skip refresh and go straight to the interactive authorize flow. "
+            "Use this when scopes have been added to the Atlassian app's "
+            "Permissions page — a refresh would only mint a new access_token "
+            "under the old scopes, while the user-clicked authorize flow "
+            "issues a token reflecting the latest registration. Requires a "
+            "writable store."
+        ),
+    )
+    parser.add_argument(
         "--allow-rotation-loss",
         action="store_true",
         help=(
@@ -193,6 +205,14 @@ def main() -> int:
         )
         return 1
 
+    if args.reauthorize and not store.writable():
+        logger.error(
+            "--reauthorize requires a writable store; the %s store is read-only "
+            "so the freshly-minted tokens would have nowhere to land.",
+            store.name,
+        )
+        return 1
+
     with _store_lock(store.lock_path):
         try:
             creds = store.read()
@@ -210,7 +230,11 @@ def main() -> int:
             persist=False,
         )
 
-        if not config.refresh_access_token():
+        # Force re-authorization when --reauthorize is set: a refresh would
+        # only mint a new access_token under the old scopes.
+        refresh_succeeded = False if args.reauthorize else config.refresh_access_token()
+
+        if not refresh_succeeded:
             if not store.writable():
                 logger.error(
                     "Refresh failed and the %s store is read-only — re-run "
@@ -221,10 +245,18 @@ def main() -> int:
                 )
                 return 1
 
-            logger.warning(
-                "Refresh failed — falling back to interactive authorize flow. "
-                "A browser window will open; complete consent to mint new tokens."
-            )
+            if args.reauthorize:
+                logger.info(
+                    "--reauthorize: launching interactive authorize flow. "
+                    "A browser window will open; complete consent to mint "
+                    "tokens reflecting the latest scope registration."
+                )
+            else:
+                logger.warning(
+                    "Refresh failed — falling back to interactive authorize "
+                    "flow. A browser window will open; complete consent to "
+                    "mint new tokens."
+                )
             new_config = _reauthorize(creds.client_id, creds.client_secret)
             if new_config is None:
                 logger.error("Authorize flow failed; new tokens NOT minted")
