@@ -69,6 +69,7 @@ class OAuthConfig:
     refresh_token: str | None = None
     access_token: str | None = None
     expires_at: float | None = None
+    persist: bool = True
 
     def __post_init__(self) -> None:
         """Validate mutual exclusivity of cloud_id and base_url."""
@@ -354,6 +355,8 @@ class OAuthConfig:
         This allows the tokens to be reused between runs without requiring
         the user to go through the authorization flow again.
         """
+        if not self.persist:
+            return
         try:
             username = self._get_keyring_username()
             base_username = f"oauth-{self.client_id}"

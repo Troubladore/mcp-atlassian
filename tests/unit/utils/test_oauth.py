@@ -471,6 +471,39 @@ class TestOAuthConfig:
             assert saved_data["expires_at"] == 1234567890
             assert saved_data["cloud_id"] == "test-cloud-id"
 
+    def test_persist_default_true(self):
+        """OAuthConfig.persist defaults to True (back-compat)."""
+        config = OAuthConfig(
+            client_id="test-client-id",
+            client_secret="test-client-secret",
+            redirect_uri="https://example.com/callback",
+            scope="read:jira-work",
+        )
+        assert config.persist is True
+
+    @patch("keyring.set_password")
+    @patch.object(OAuthConfig, "_save_tokens_to_file")
+    def test_save_tokens_no_persist_skips_keyring_and_file(
+        self, mock_save_to_file, mock_set_password
+    ):
+        """When persist=False, _save_tokens writes nothing to keyring or disk."""
+        config = OAuthConfig(
+            client_id="test-client-id",
+            client_secret="test-client-secret",
+            redirect_uri="https://example.com/callback",
+            scope="read:jira-work",
+            cloud_id="test-cloud-id",
+            refresh_token="test-refresh-token",
+            access_token="test-access-token",
+            expires_at=1234567890,
+            persist=False,
+        )
+
+        config._save_tokens()
+
+        mock_set_password.assert_not_called()
+        mock_save_to_file.assert_not_called()
+
     @patch("keyring.get_password")
     @patch.object(OAuthConfig, "_load_tokens_from_file")
     def test_load_tokens_keyring_success(self, mock_load_from_file, mock_get_password):
@@ -1123,12 +1156,18 @@ class TestDataCenterOAuth:
         assert config.cloud_id is None
 
     def test_from_env_dc_defaults_redirect_and_scope(self):
-        """DC from_env provides default redirect_uri and scope."""
+        """DC from_env provides default redirect_uri and scope.
+
+        Uses clear=True to be hermetic against earlier tests that may have
+        set ATLASSIAN_OAUTH_REDIRECT_URI or ATLASSIAN_OAUTH_SCOPE without
+        cleaning up — this test specifically asserts the DEFAULT path,
+        which only triggers when those env vars are absent.
+        """
         env = {
             "ATLASSIAN_OAUTH_CLIENT_ID": "dc-client",
             "ATLASSIAN_OAUTH_CLIENT_SECRET": "dc-secret",
         }
-        with patch.dict("os.environ", env, clear=False):
+        with patch.dict("os.environ", env, clear=True):
             config = OAuthConfig.from_env(
                 service_url="https://jira.corp.com",
                 service_type="jira",

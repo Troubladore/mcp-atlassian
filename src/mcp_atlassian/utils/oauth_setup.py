@@ -208,10 +208,28 @@ class OAuthSetupArgs:
     redirect_uri: str
     scope: str
     base_url: str | None = None
+    persist: bool = True
 
 
 def run_oauth_flow(args: OAuthSetupArgs) -> bool:
-    """Run the OAuth 2.0 authorization flow."""
+    """Run the OAuth 2.0 authorization flow.
+
+    Backwards-compatible wrapper that returns ``True`` on success and
+    ``False`` on failure. For callers that need access to the resulting
+    ``OAuthConfig`` (e.g. emitting tokens to stdout under ``--no-persist``),
+    use :func:`run_oauth_flow_returning_config` instead.
+    """
+    return run_oauth_flow_returning_config(args) is not None
+
+
+def run_oauth_flow_returning_config(args: OAuthSetupArgs) -> OAuthConfig | None:
+    """Run the OAuth 2.0 authorization flow and return the populated config.
+
+    Returns the :class:`OAuthConfig` instance with ``access_token``,
+    ``refresh_token``, and ``cloud_id`` populated on success. Returns
+    ``None`` on any failure (server start, callback, state mismatch,
+    token exchange).
+    """
     # Reset global state (important for multiple runs)
     global authorization_code, authorization_state, callback_received, callback_error
     authorization_code = None
@@ -226,6 +244,7 @@ def run_oauth_flow(args: OAuthSetupArgs) -> bool:
         redirect_uri=args.redirect_uri,
         scope=args.scope,
         base_url=args.base_url,
+        persist=args.persist,
     )
 
     # Generate a random state for CSRF protection
@@ -244,7 +263,7 @@ def run_oauth_flow(args: OAuthSetupArgs) -> bool:
         except OSError as e:
             logger.error(f"Failed to start callback server: {e}")
             logger.error(f"Make sure port {port} is available and not in use")
-            return False
+            return None
 
     # Get the authorization URL
     auth_url = oauth_config.get_authorization_url(state=state)
@@ -260,14 +279,14 @@ def run_oauth_flow(args: OAuthSetupArgs) -> bool:
     if not wait_for_callback():
         if httpd:
             httpd.shutdown()
-        return False
+        return None
 
     # Verify state to prevent CSRF attacks
     if authorization_state != state:
         logger.error("State mismatch! Possible CSRF attack.")
         if httpd:
             httpd.shutdown()
-        return False
+        return None
 
     # Exchange the code for tokens
     logger.info("Exchanging authorization code for tokens...")
@@ -282,21 +301,27 @@ def run_oauth_flow(args: OAuthSetupArgs) -> bool:
                 "and require re-authentication."
             )
 
-        if oauth_config.is_data_center:
-            _log_dc_success(oauth_config)
-        elif oauth_config.cloud_id:
-            _log_cloud_success(oauth_config)
-        else:
+        # Storage-specific success logging only applies when tokens are
+        # actually being persisted. With persist=False, the caller is
+        # responsible for emitting the tokens (e.g. JSON to stdout).
+        if oauth_config.persist:
+            if oauth_config.is_data_center:
+                _log_dc_success(oauth_config)
+            elif oauth_config.cloud_id:
+                _log_cloud_success(oauth_config)
+            else:
+                logger.error("Failed to obtain cloud ID!")
+        elif not oauth_config.is_data_center and not oauth_config.cloud_id:
             logger.error("Failed to obtain cloud ID!")
 
         if httpd:
             httpd.shutdown()
-        return True
+        return oauth_config
     else:
         logger.error("Failed to exchange authorization code for tokens")
         if httpd:
             httpd.shutdown()
-        return False
+        return None
 
 
 def _log_cloud_success(oauth_config: OAuthConfig) -> None:

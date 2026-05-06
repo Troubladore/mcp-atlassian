@@ -33,6 +33,7 @@ Environment variables can also be used:
 """
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -40,7 +41,10 @@ import sys
 # Add the parent directory to the path so we can import the package
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.mcp_atlassian.utils.oauth_setup import OAuthSetupArgs, run_oauth_flow
+from src.mcp_atlassian.utils.oauth_setup import (
+    OAuthSetupArgs,
+    run_oauth_flow_returning_config,
+)
 from src.mcp_atlassian.utils.urls import is_atlassian_cloud_url
 
 logging.basicConfig(
@@ -72,6 +76,16 @@ def main() -> int:
         help="OAuth Redirect URI (e.g., http://localhost:8080/callback)",
     )
     parser.add_argument("--scope", help="OAuth Scope (space-separated)")
+    parser.add_argument(
+        "--no-persist",
+        action="store_true",
+        help=(
+            "Do not write tokens to ~/.mcp-atlassian/ or the OS keyring. "
+            "On success, emit a JSON block with access_token, refresh_token, "
+            "cloud_id, and expires_at to stdout for the caller to capture "
+            "(e.g. into 1Password)."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -126,9 +140,27 @@ def main() -> int:
         redirect_uri=args.redirect_uri,
         scope=args.scope,
         base_url=base_url,
+        persist=not args.no_persist,
     )
-    success = run_oauth_flow(setup_args)
-    return 0 if success else 1
+
+    oauth_config = run_oauth_flow_returning_config(setup_args)
+    if oauth_config is None:
+        return 1
+
+    if args.no_persist:
+        token_block: dict[str, object] = {
+            "access_token": oauth_config.access_token,
+            "refresh_token": oauth_config.refresh_token,
+            "expires_at": oauth_config.expires_at,
+        }
+        if oauth_config.is_data_center:
+            token_block["base_url"] = oauth_config.base_url
+        else:
+            token_block["cloud_id"] = oauth_config.cloud_id
+
+        print(json.dumps(token_block, indent=2))
+
+    return 0
 
 
 if __name__ == "__main__":
